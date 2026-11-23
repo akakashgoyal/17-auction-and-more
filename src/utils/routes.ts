@@ -11,6 +11,49 @@ export interface RouteState {
   authorityId?: string;
 }
 
+/**
+ * Convert any title string into a clean URL-safe lowercase hyphenated slug
+ */
+export function toTitleSlug(title?: string | null): string {
+  if (!title || typeof title !== 'string') return '';
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '');
+}
+
+/**
+ * Build a deterministic, readable URL slug combining title and numeric ID (e.g. "industrial-plots-97")
+ */
+export function buildEntitySlug(title?: string | null, id?: string | number | null, existingSlug?: string | null): string {
+  if (existingSlug && String(existingSlug).trim()) {
+    return String(existingSlug).trim();
+  }
+  const cleanId = id !== undefined && id !== null ? String(id).trim() : '';
+  const baseSlug = toTitleSlug(title);
+  if (baseSlug && cleanId) {
+    // Avoid duplicating suffix if baseSlug already ends with -{id}
+    if (baseSlug.endsWith(`-${cleanId}`)) return baseSlug;
+    return `${baseSlug}-${cleanId}`;
+  }
+  return baseSlug || cleanId;
+}
+
+/**
+ * Extract numeric ID from either a pure numeric ID ("97") or a slug ("industrial-plots-97" / "97-industrial-plots")
+ */
+export function extractEntityId(slugOrId?: string | number | null): string {
+  if (slugOrId === undefined || slugOrId === null) return '';
+  const clean = String(slugOrId).trim();
+  if (!clean) return '';
+  if (/^\d+$/.test(clean)) return clean;
+  const suffixMatch = clean.match(/-(\d+)$/);
+  if (suffixMatch) return suffixMatch[1];
+  const prefixMatch = clean.match(/^(\d+)-/);
+  if (prefixMatch) return prefixMatch[1];
+  return '';
+}
+
 // Clean URL paths (strictly NO '#' symbols)
 export const ROUTE_PATH_MAP: Record<PageRoute, string> = {
   home: '/',

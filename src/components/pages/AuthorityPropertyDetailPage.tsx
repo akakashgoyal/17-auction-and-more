@@ -5,7 +5,7 @@ import { formatINR } from '../../utils/storage';
 import { getStatusLabelAndColor } from '../AuthorityPropertyCard';
 import { PropertyWatermark } from '../PropertyWatermark';
 import { PageRoute } from '../Navbar';
-import { getShareableUrl, OFFICIAL_SITE_URL } from '../../utils/routes';
+import { getShareableUrl, OFFICIAL_SITE_URL, buildEntitySlug, extractEntityId } from '../../utils/routes';
 import { useApi } from '../../context/ApiContext';
 import {
   generateAuthorityPropertyMetadata,
@@ -92,8 +92,9 @@ export const AuthorityPropertyDetailPage: React.FC<AuthorityPropertyDetailPagePr
 }) => {
   const { settings, openAuthorityEnquiryModal, openShareModal } = useApi();
 
+  const normalizedPropId = extractEntityId(propertyId) || String(propertyId);
   const [property, setProperty] = useState<AuthorityProperty | null>(
-    initialProperty && String(initialProperty.id) === String(propertyId) ? initialProperty : null
+    initialProperty && String(initialProperty.id) === normalizedPropId ? initialProperty : null
   );
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -166,10 +167,10 @@ export const AuthorityPropertyDetailPage: React.FC<AuthorityPropertyDetailPagePr
   const handleCopyShareLink = async () => {
     if (typeof window === 'undefined') return;
     try {
-      const shareHref = getShareableUrl(
-        'authority-property-detail',
-        String(property?.id || propertyId)
-      );
+      const slugOrId = property
+        ? buildEntitySlug(property.title, property.id)
+        : String(propertyId);
+      const shareHref = getShareableUrl('authority-property-detail', slugOrId);
       await navigator.clipboard.writeText(shareHref);
       setCopiedUrl(true);
       setTimeout(() => setCopiedUrl(false), 2500);

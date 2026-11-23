@@ -55,6 +55,19 @@ export const Navbar: React.FC<NavbarProps> = ({ currentPage, onNavigate }) => {
   const authorityDropdownRef = useRef<HTMLDivElement>(null);
   const { settings, openCustomerRequirementModal, openShareModal } = useApi();
 
+  const handleShareCurrentPage = () => {
+    const isDetailRoute =
+      currentPage === 'property-detail' ||
+      currentPage === 'authority-property-detail' ||
+      currentPage === 'auction-detail' ||
+      currentPage === 'blog-detail';
+    const currentPath =
+      typeof window !== 'undefined' && window.location && window.location.pathname
+        ? window.location.pathname
+        : '/';
+    openShareModal(null, true, isDetailRoute ? '/' : currentPath);
+  };
+
   // Dynamic Scrap & Plant Machinery active counts and subcategories strictly from backend API
   const [assetStats, setAssetStats] = useState<{
     scrapCount: number;
@@ -273,7 +286,7 @@ export const Navbar: React.FC<NavbarProps> = ({ currentPage, onNavigate }) => {
             <span className="text-slate-600 hidden lg:inline">·</span>
             <button
               type="button"
-              onClick={() => openShareModal(null, true)}
+              onClick={handleShareCurrentPage}
               className="flex items-center gap-1.5 text-slate-300 hover:text-[#D89B30] transition-colors cursor-pointer"
               title="Share Auctions & More Platform"
             >
@@ -715,7 +728,7 @@ export const Navbar: React.FC<NavbarProps> = ({ currentPage, onNavigate }) => {
         <div className="flex lg:hidden items-center gap-1.5 sm:gap-2 flex-shrink-0">
           <button
             type="button"
-            onClick={() => openShareModal(null, true)}
+            onClick={handleShareCurrentPage}
             className="w-9 h-9 sm:w-auto sm:px-2.5 sm:py-1.5 rounded-xl bg-slate-50 hover:bg-[#FAF1DE] border border-[#E2E8F0] text-[#142533] flex items-center justify-center gap-1.5 transition-colors shrink-0 cursor-pointer"
             title="Share Website"
             aria-label="Share Website"
@@ -1024,7 +1037,7 @@ export const Navbar: React.FC<NavbarProps> = ({ currentPage, onNavigate }) => {
                 type="button"
                 onClick={() => {
                   setMobileMenuOpen(false);
-                  openShareModal(null, true);
+                  handleShareCurrentPage();
                 }}
                 className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-[#FAF8F5] hover:bg-[#FAF1DE] text-[#9A6007] font-semibold text-xs border border-[#E8E2D5] min-h-[44px] transition-colors cursor-pointer"
               >

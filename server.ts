@@ -13,10 +13,11 @@ import {
   generateAuthorityPropertyMetadata,
   generateAuctionAssetMetadata,
   generateBlogMetadata,
-  generateDefaultMetadata,
+  generatePageMetadata,
   renderHtmlHeadTags,
   GeneratedMetadata,
 } from './src/utils/propertyMetadata.ts';
+import { extractEntityId } from './src/utils/routes.ts';
 
 // Ensure Node prefers IPv4 when resolving backend API hostnames to avoid IPv6 connect timeouts
 dns.setDefaultResultOrder('ipv4first');
@@ -244,15 +245,17 @@ async function fetchProperty(idOrSlug: string): Promise<any | null> {
 /**
  * Fetch Authority Property details from Laravel API
  */
-async function fetchAuthorityProperty(id: string): Promise<any | null> {
-  const clean = id.trim();
-  const cached = getFromCache(authorityPropertyCache, clean);
+async function fetchAuthorityProperty(idOrSlug: string): Promise<any | null> {
+  const clean = idOrSlug.trim();
+  const numericId = extractEntityId(clean) || clean;
+  const cached = getFromCache(authorityPropertyCache, clean) || getFromCache(authorityPropertyCache, numericId);
   if (cached) return cached;
 
-  const json = await fetchJsonWithTimeout(`${BACKEND_API_BASE}/authority-properties/${encodeURIComponent(clean)}`, 7000);
+  const json = await fetchJsonWithTimeout(`${BACKEND_API_BASE}/authority-properties/${encodeURIComponent(numericId)}`, 7000);
   const data = json?.data || json;
   if (data && (data.id || data.title)) {
     setToCache(authorityPropertyCache, clean, data);
+    setToCache(authorityPropertyCache, numericId, data);
     return data;
   }
   return null;
@@ -261,15 +264,17 @@ async function fetchAuthorityProperty(id: string): Promise<any | null> {
 /**
  * Fetch Auction Asset (Machinery/Scrap) details from Laravel API
  */
-async function fetchAuctionAsset(id: string): Promise<any | null> {
-  const clean = id.trim();
-  const cached = getFromCache(auctionAssetCache, clean);
+async function fetchAuctionAsset(idOrSlug: string): Promise<any | null> {
+  const clean = idOrSlug.trim();
+  const numericId = extractEntityId(clean) || clean;
+  const cached = getFromCache(auctionAssetCache, clean) || getFromCache(auctionAssetCache, numericId);
   if (cached) return cached;
 
-  const json = await fetchJsonWithTimeout(`${BACKEND_API_BASE}/auction-assets/${encodeURIComponent(clean)}`, 7000);
+  const json = await fetchJsonWithTimeout(`${BACKEND_API_BASE}/auction-assets/${encodeURIComponent(numericId)}`, 7000);
   const data = json?.data || json;
   if (data && (data.id || data.title)) {
     setToCache(auctionAssetCache, clean, data);
+    setToCache(auctionAssetCache, numericId, data);
     return data;
   }
   return null;
@@ -383,7 +388,7 @@ async function resolveMetadataForPath(rawPath: string, baseUrl: string): Promise
         return generateAuthorityPropertyMetadata(normalized, baseUrl);
       }
       return generateAuthorityPropertyMetadata(
-        { id: Number(param) || 0, title: `Authority Property #${param}` },
+        { id: Number(extractEntityId(param)) || 0, title: `Authority Property #${param}` },
         baseUrl
       );
     }
@@ -400,7 +405,7 @@ async function resolveMetadataForPath(rawPath: string, baseUrl: string): Promise
         return generateAuctionAssetMetadata(normalized, baseUrl);
       }
       return generateAuctionAssetMetadata(
-        { id: Number(param) || 0, title: `Auction Asset #${param}` },
+        { id: Number(extractEntityId(param)) || 0, title: `Auction Asset #${param}` },
         baseUrl
       );
     }
@@ -417,8 +422,8 @@ async function resolveMetadataForPath(rawPath: string, baseUrl: string): Promise
     }
   }
 
-  // Default: Homepage & Main platform metadata
-  return generateDefaultMetadata(baseUrl);
+  // Dedicated Single-Page Metadata for all website pages (/, /properties, /about, /contact, etc.)
+  return generatePageMetadata(cleanPath, baseUrl);
 }
 
 // Set up Vite in development mode or serve static files in production

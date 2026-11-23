@@ -115,17 +115,71 @@ export const PropertyDetailPage: React.FC<PropertyDetailPageProps> = ({
     setBankLogoFailed(false);
   }, [matchedBankInfo.logoUrl]);
 
-  // Dynamically update document title, Open Graph, and Twitter metadata
+  // Dynamically update document title, Open Graph, Twitter metadata, and canonical slug URL
   useEffect(() => {
     if (property) {
-      const baseUrl = typeof window !== 'undefined' && window.location && window.location.origin
-        ? window.location.origin
-        : OFFICIAL_SITE_URL;
-      const canonicalParam = propertyIdOrSlug || property.slug || property.id;
-      const meta = generatePropertyMetadata(property, baseUrl, canonicalParam);
+      const canonicalSegment =
+        (property.slug && property.slug.trim()) ||
+        propertyIdOrSlug ||
+        String(property.id);
+
+      if (
+        typeof window !== 'undefined' &&
+        window.location &&
+        property.slug &&
+        property.slug.trim() &&
+        (window.location.pathname.startsWith('/property/') || window.location.pathname.startsWith('/properties/'))
+      ) {
+        const expectedPath = `/property/${property.slug.trim()}`;
+        if (window.location.pathname !== expectedPath) {
+          window.history.replaceState(
+            { page: 'property-detail', propertyId: property.slug.trim() },
+            '',
+            `${expectedPath}${window.location.search || ''}`
+          );
+        }
+      }
+
+      const baseUrl =
+        typeof window !== 'undefined' && window.location && window.location.origin
+          ? window.location.origin
+          : OFFICIAL_SITE_URL;
+      const meta = generatePropertyMetadata(property, baseUrl, canonicalSegment);
       updateClientPageMetadata(meta);
     }
   }, [property, propertyIdOrSlug]);
+
+  // Real countdown logic based on actual auction date from API (MUST be declared before any conditional early returns)
+  const [timeLeft, setTimeLeft] = useState<{ days: number; hours: number; minutes: number; seconds: number } | null>(null);
+  const hasValidAuctionDate = Boolean(
+    property?.auctionDate && !isNaN(new Date(property.auctionDate).getTime())
+  );
+
+  useEffect(() => {
+    if (!hasValidAuctionDate || !property?.auctionDate) {
+      setTimeLeft(null);
+      return;
+    }
+
+    const targetDateStr = property.auctionDate;
+    const updateCountdown = () => {
+      const target = new Date(targetDateStr).getTime();
+      const diff = Math.max(0, target - Date.now());
+      if (diff === 0) {
+        setTimeLeft({ days: 0, hours: 0, minutes: 0, seconds: 0 });
+        return;
+      }
+      const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+      const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+      const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+      const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+      setTimeLeft({ days, hours, minutes, seconds });
+    };
+
+    updateCountdown();
+    const interval = setInterval(updateCountdown, 1000);
+    return () => clearInterval(interval);
+  }, [property?.auctionDate, hasValidAuctionDate]);
 
   const isLoading = initialLoading || internalLoading;
   const isNotFound = initialNotFound || internalNotFound || (!property && !isLoading);
@@ -249,35 +303,6 @@ export const PropertyDetailPage: React.FC<PropertyDetailPageProps> = ({
     }
   };
   const formattedPostAuctionDate = formatPostAuctionDate(rawPostAuctionDate);
-
-  // Real countdown logic based on actual auction date from API
-  const [timeLeft, setTimeLeft] = useState<{ days: number; hours: number; minutes: number; seconds: number } | null>(null);
-  const hasValidAuctionDate = Boolean(property.auctionDate && !isNaN(new Date(property.auctionDate).getTime()));
-
-  useEffect(() => {
-    if (!hasValidAuctionDate) {
-      setTimeLeft(null);
-      return;
-    }
-
-    const updateCountdown = () => {
-      const target = new Date(property.auctionDate).getTime();
-      const diff = Math.max(0, target - Date.now());
-      if (diff === 0) {
-        setTimeLeft({ days: 0, hours: 0, minutes: 0, seconds: 0 });
-        return;
-      }
-      const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-      const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-      const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-      const seconds = Math.floor((diff % (1000 * 60)) / 1000);
-      setTimeLeft({ days, hours, minutes, seconds });
-    };
-
-    updateCountdown();
-    const interval = setInterval(updateCountdown, 1000);
-    return () => clearInterval(interval);
-  }, [property.auctionDate, hasValidAuctionDate]);
 
   // Real location formatting using actual API values
   const addressParts = [

@@ -35,6 +35,7 @@ import { FAQItem, FAQ_DATA } from '../data/faqData';
 import { Testimonial, TESTIMONIALS } from '../data/testimonialsData';
 import { COMPANY_INFO } from '../data/companyInfo';
 import { getYouTubeThumbnailUrl } from '../utils/videoUtils';
+import { toTitleSlug, extractEntityId } from '../utils/routes';
 
 const DEFAULT_PROD_BACKEND_URL = 'https://auction-admin.springstrdg.com';
 
@@ -634,11 +635,9 @@ export function normalizeProperty(raw: any, indexFallback: number = 1): Property
   const id = String(raw.id || raw.property_id || raw.slug || `prop-${indexFallback}`);
   const title = String(raw.property_title || raw.title || raw.name || 'Bank Auction Property');
   // Generate clean slug if not explicitly returned by API
-  const generatedSlug = title
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/(^-|-$)/g, '');
-  const slug = raw.slug ? String(raw.slug) : (generatedSlug ? `${generatedSlug}-${id}` : `property-${id}`);
+  const generatedSlug = toTitleSlug(title);
+  const rawSlug = raw.slug ? String(raw.slug).trim() : '';
+  const slug = rawSlug || (generatedSlug ? `${generatedSlug}-${id}` : `property-${id}`);
 
   // Location handling
   const locState = typeof raw.state === 'object' && raw.state ? (raw.state.name || raw.state.title || '') : (raw.state || '');
@@ -1675,9 +1674,26 @@ export async function getPropertyById(idOrSlug: string | number): Promise<{
   }
 
   const cleanStr = String(idOrSlug).trim();
+  const cleanLower = cleanStr.toLowerCase();
   const isNumericId = /^\d+$/.test(cleanStr);
+  const extractedNumericId = extractEntityId(cleanStr);
 
-  // 1. If it's a numeric ID, fetch directly from /properties/{id}
+  const matchesItemBySlugOrId = (rawItem: any): boolean => {
+    if (!rawItem) return false;
+    if (String(rawItem.id) === cleanStr) return true;
+    const itemSlug = rawItem.slug ? String(rawItem.slug).trim().toLowerCase() : '';
+    if (itemSlug && itemSlug === cleanLower) return true;
+    const rawTitle = String(rawItem.property_title || rawItem.title || rawItem.name || '');
+    const titleSlug = toTitleSlug(rawTitle);
+    if (titleSlug) {
+      if (titleSlug === cleanLower || `${titleSlug}-${rawItem.id}` === cleanLower) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  // 1. If it's a pure numeric ID, fetch directly from /properties/{id}
   if (isNumericId) {
     const res = await requestJson<any>(`/properties/${cleanStr}`, { method: 'GET' });
     if (res.success && res.data) {
@@ -1691,14 +1707,13 @@ export async function getPropertyById(idOrSlug: string | number): Promise<{
 
   // 2. Check in-memory fallback catalog or cache first
   if (fallbackPropertiesCatalog.length > 0) {
-    const cachedMatch = fallbackPropertiesCatalog.find(
-      (p) =>
-        p.slug === cleanStr ||
-        (Boolean(p.slug) && p.slug!.toLowerCase() === cleanStr.toLowerCase()) ||
-        String(p.id) === cleanStr
-    );
+    const cachedMatch = fallbackPropertiesCatalog.find((p) => {
+      if (String(p.id) === cleanStr) return true;
+      if (p.slug && p.slug.trim().toLowerCase() === cleanLower) return true;
+      const tSlug = toTitleSlug(p.title);
+      return Boolean(tSlug && (tSlug === cleanLower || `${tSlug}-${p.id}` === cleanLower));
+    });
     if (cachedMatch) {
-      // Also try fetching full detail with documents/media using cachedMatch.id if possible
       try {
         const fullRes = await requestJson<any>(`/properties/${cachedMatch.id}`, { method: 'GET' });
         if (fullRes.success && fullRes.data) {
@@ -1719,52 +1734,67 @@ export async function getPropertyById(idOrSlug: string | number): Promise<{
     }
   }
 
-  // 3. Search specifically using normalized keywords (e.g. search=property in east of kailash)
-  try {
-    const searchKeywords = cleanStr.replace(/-/g, ' ');
-    const searchRes = await requestJson<any>(
-      `/properties?per_page=50&search=${encodeURIComponent(searchKeywords)}`,
-      { method: 'GET' }
-    );
-    if (searchRes.success && Array.isArray(searchRes.data) && searchRes.data.length > 0) {
-      const match =
-        searchRes.data.find(
-          (item: any) =>
-            item.slug === cleanStr ||
-            (item.slug && item.slug.toLowerCase() === cleanStr.toLowerCase()) ||
-            String(item.id) === cleanStr ||
-            (item.property_title &&
-              item.property_title
-                .toLowerCase()
-                .includes(cleanStr.replace(/-/g, ' ').toLowerCase()))
-        );
-
-      if (match) {
-        // Fetch full property record using numeric id
-        try {
-          const detailRes = await requestJson<any>(`/properties/${match.id}`, { method: 'GET' });
-          if (detailRes.success && detailRes.data) {
-            return {
-              property: normalizeProperty(detailRes.data),
-              fromApi: true,
-              success: true,
-            };
-          }
-        } catch {
-          // Fall back to normalized search item
-        }
+  // 3. If slug carries a trailing/leading numeric ID (e.g. property-in-east-of-kailash-115), try direct ID and verify match
+  if (!isNumericId && extractedNumericId) {
+    const res = await requestJson<any>(`/properties/${extractedNumericId}`, { method: 'GET' });
+    if (res.success && res.data && (matchesItemBySlugOrId(res.data) || String(res.data.id) === extractedNumericId)) {
+      const normalized = normalizeProperty(res.data);
+      const tSlug = toTitleSlug(normalized.title);
+      if (
+        normalized.slug?.toLowerCase() === cleanLower ||
+        `${tSlug}-${normalized.id}` === cleanLower ||
+        cleanLower.startsWith(`${tSlug}-`) ||
+        cleanLower.startsWith(`${normalized.id}-`)
+      ) {
         return {
-          property: normalizeProperty(match),
+          property: normalized,
           fromApi: true,
           success: true,
         };
+      }
+    }
+  }
+
+  // 4. Search specifically using normalized keywords (stripping trailing -id suffix if present)
+  try {
+    const keywordSource = extractedNumericId && cleanStr.endsWith(`-${extractedNumericId}`)
+      ? cleanStr.slice(0, -(`-${extractedNumericId}`.length))
+      : cleanStr;
+    const searchKeywords = keywordSource.replace(/-/g, ' ').trim();
+    if (searchKeywords) {
+      const searchRes = await requestJson<any>(
+        `/properties?per_page=50&search=${encodeURIComponent(searchKeywords)}`,
+        { method: 'GET' }
+      );
+      if (searchRes.success && Array.isArray(searchRes.data) && searchRes.data.length > 0) {
+        const match = searchRes.data.find((item: any) => matchesItemBySlugOrId(item));
+
+        if (match) {
+          try {
+            const detailRes = await requestJson<any>(`/properties/${match.id}`, { method: 'GET' });
+            if (detailRes.success && detailRes.data) {
+              return {
+                property: normalizeProperty(detailRes.data),
+                fromApi: true,
+                success: true,
+              };
+            }
+          } catch {
+            // Fall back to normalized search item
+          }
+          return {
+            property: normalizeProperty(match),
+            fromApi: true,
+            success: true,
+          };
+        }
       }
     }
   } catch (err) {
     console.warn('Property search by slug error:', err);
   }
 
-  // 4. Try direct endpoint in case backend supports slug routing
+  // 5. Try direct endpoint in case backend supports slug routing
   if (!isNumericId) {
     const res = await requestJson<any>(`/properties/${encodeURIComponent(cleanStr)}`, {
       method: 'GET',
@@ -1778,7 +1808,7 @@ export async function getPropertyById(idOrSlug: string | number): Promise<{
     }
   }
 
-  // 5. Try catalog listing across pages as fallback
+  // 6. Try catalog listing across pages as fallback
   try {
     let page = 1;
     let lastPage = 1;
@@ -1786,12 +1816,12 @@ export async function getPropertyById(idOrSlug: string | number): Promise<{
       const listRes = await getProperties({ per_page: 100, page });
       if (!listRes.success || listRes.properties.length === 0) break;
       lastPage = listRes.pagination?.last_page || 1;
-      const match = listRes.properties.find(
-        (p) =>
-          p.slug === cleanStr ||
-          (Boolean(p.slug) && p.slug!.toLowerCase() === cleanStr.toLowerCase()) ||
-          String(p.id) === cleanStr
-      );
+      const match = listRes.properties.find((p) => {
+        if (String(p.id) === cleanStr) return true;
+        if (p.slug && p.slug.trim().toLowerCase() === cleanLower) return true;
+        const tSlug = toTitleSlug(p.title);
+        return Boolean(tSlug && (tSlug === cleanLower || `${tSlug}-${p.id}` === cleanLower));
+      });
       if (match) {
         try {
           const detailRes = await requestJson<any>(`/properties/${match.id}`, { method: 'GET' });
@@ -3036,7 +3066,8 @@ export async function getAuctionAssetById(
   message?: string;
 }> {
   try {
-    const res = await requestJson<any>(`/auction-assets/${id}`);
+    const extractedId = extractEntityId(id) || String(id).trim();
+    const res = await requestJson<any>(`/auction-assets/${encodeURIComponent(extractedId)}`);
     const raw = res.raw?.data || res.data;
     if (res.success && raw && typeof raw === 'object' && ('id' in raw || 'title' in raw)) {
       return {
@@ -3924,7 +3955,8 @@ export async function getAuthorityPropertyById(
   property: AuthorityProperty | null;
   message?: string;
 }> {
-  const cleanId = encodeURIComponent(String(id).trim());
+  const extractedId = extractEntityId(id) || String(id).trim();
+  const cleanId = encodeURIComponent(extractedId);
   const res = await requestJson<any>(`/authority-properties/${cleanId}`, { method: 'GET' });
 
   if (!res.success) {

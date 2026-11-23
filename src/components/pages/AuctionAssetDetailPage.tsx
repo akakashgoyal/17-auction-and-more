@@ -27,7 +27,7 @@ import {
 } from 'lucide-react';
 
 interface AuctionAssetDetailPageProps {
-  assetId: number;
+  assetId: number | string;
   initialAsset?: AuctionAsset | null;
   onNavigate?: (page: PageRoute, customUrl?: string) => void;
   onBack?: () => void;

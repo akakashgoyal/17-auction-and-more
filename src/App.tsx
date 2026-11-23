@@ -7,13 +7,19 @@ import { Navbar, PageRoute } from './components/Navbar';
 import { Footer } from './components/Footer';
 import { HomePage } from './components/pages/HomePage';
 import { MessageCircle } from 'lucide-react';
-import { parsePathname, getCleanUrl, getOfficialUrl } from './utils/routes';
+import {
+  parsePathname,
+  getCleanUrl,
+  buildEntitySlug,
+  extractEntityId,
+  toTitleSlug,
+} from './utils/routes';
 import {
   generatePropertyMetadata,
   generateAuthorityPropertyMetadata,
   generateAuctionAssetMetadata,
   generateBlogMetadata,
-  generateDefaultMetadata,
+  generatePageMetadata,
   updateClientPageMetadata,
 } from './utils/propertyMetadata';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -115,15 +121,16 @@ export default function App() {
 
     if (route.page === 'property-detail' && route.propertyId) {
       const propId = route.propertyId;
+      const lowerPropId = propId.toLowerCase();
       setSelectedPropertyId(propId);
       setPropertyNotFound(false);
 
-      const match = apiProperties.find(
-        (p) =>
-          String(p.id) === String(propId) ||
-          p.slug === propId ||
-          (p.slug && p.slug.toLowerCase() === propId.toLowerCase())
-      );
+      const match = apiProperties.find((p) => {
+        if (String(p.id) === String(propId)) return true;
+        if (p.slug && p.slug.toLowerCase() === lowerPropId) return true;
+        const tSlug = toTitleSlug(p.title);
+        return Boolean(tSlug && (tSlug === lowerPropId || `${tSlug}-${p.id}` === lowerPropId));
+      });
 
       if (match) {
         setSelectedProperty(match);
@@ -152,13 +159,17 @@ export default function App() {
     }
 
     if (route.page === 'auction-detail' && route.auctionId) {
-      const aId = Number(route.auctionId);
-      setSelectedAuctionId(aId);
-      getAuctionAssetById(aId).then((res) => {
-        if (res && res.asset) {
-          setSelectedAuctionAsset(res.asset);
-        }
-      }).catch((err) => console.error('Failed to resolve auction asset route:', err));
+      const extracted = extractEntityId(route.auctionId);
+      const aId = Number(extracted || route.auctionId);
+      const resolvedId = !isNaN(aId) && aId > 0 ? aId : route.auctionId;
+      setSelectedAuctionId(!isNaN(aId) && aId > 0 ? aId : null);
+      getAuctionAssetById(resolvedId)
+        .then((res) => {
+          if (res && res.asset) {
+            setSelectedAuctionAsset(res.asset);
+          }
+        })
+        .catch((err) => console.error('Failed to resolve auction asset route:', err));
     }
 
     if (route.page === 'authority-properties') {
@@ -176,9 +187,10 @@ export default function App() {
     }
 
     if (route.page === 'authority-property-detail' && route.authorityPropertyId) {
-      setSelectedAuthorityPropertyId(route.authorityPropertyId);
+      const extractedAuthPropId = extractEntityId(route.authorityPropertyId) || route.authorityPropertyId;
+      setSelectedAuthorityPropertyId(extractedAuthPropId);
       setSelectedAuthorityProperty((prev) =>
-        prev && String(prev.id) === String(route.authorityPropertyId) ? prev : null
+        prev && String(prev.id) === String(extractedAuthPropId) ? prev : null
       );
     }
 
@@ -203,13 +215,16 @@ export default function App() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, [syncRouteFromLocation]);
 
-  // Keep metadata and canonical URLs synced across routes
+  // Keep metadata and canonical URLs synced across all single pages & entity detail routes
   useEffect(() => {
     if (typeof document === 'undefined' || typeof window === 'undefined') return;
     const origin = window.location.origin || 'https://auctionsandmore.in';
 
     if (currentPage === 'property-detail' && selectedProperty) {
-      const canonicalParam = selectedPropertyId || selectedProperty.slug || selectedProperty.id;
+      const canonicalParam =
+        (selectedProperty.slug && selectedProperty.slug.trim()) ||
+        selectedPropertyId ||
+        String(selectedProperty.id);
       const meta = generatePropertyMetadata(selectedProperty, origin, canonicalParam);
       updateClientPageMetadata(meta);
     } else if (currentPage === 'authority-property-detail' && selectedAuthorityProperty) {
@@ -221,8 +236,14 @@ export default function App() {
     } else if (currentPage === 'blog-detail' && selectedBlogPost) {
       const meta = generateBlogMetadata(selectedBlogPost, origin);
       updateClientPageMetadata(meta);
-    } else if (currentPage === 'home') {
-      const meta = generateDefaultMetadata(origin);
+    } else if (
+      currentPage !== 'property-detail' &&
+      currentPage !== 'authority-property-detail' &&
+      currentPage !== 'auction-detail' &&
+      currentPage !== 'blog-detail'
+    ) {
+      const currentPath = window.location.pathname || getCleanUrl(currentPage);
+      const meta = generatePageMetadata(currentPath, origin);
       updateClientPageMetadata(meta);
     }
   }, [
@@ -240,12 +261,13 @@ export default function App() {
   // If apiProperties finishes loading while on property-detail route and selectedProperty is not yet set
   useEffect(() => {
     if (currentPage === 'property-detail' && selectedPropertyId && !selectedProperty && apiProperties.length > 0) {
-      const match = apiProperties.find(
-        (p) =>
-          String(p.id) === String(selectedPropertyId) ||
-          p.slug === selectedPropertyId ||
-          (p.slug && p.slug.toLowerCase() === selectedPropertyId.toLowerCase())
-      );
+      const lowerId = selectedPropertyId.toLowerCase();
+      const match = apiProperties.find((p) => {
+        if (String(p.id) === String(selectedPropertyId)) return true;
+        if (p.slug && p.slug.toLowerCase() === lowerId) return true;
+        const tSlug = toTitleSlug(p.title);
+        return Boolean(tSlug && (tSlug === lowerId || `${tSlug}-${p.id}` === lowerId));
+      });
       if (match) {
         setSelectedProperty(match);
         setIsPropertyLoading(false);
@@ -265,14 +287,15 @@ export default function App() {
 
     const parsed = parsePathname(targetUrl);
     if (parsed.page === 'property-detail' && parsed.propertyId) {
+      const lowerPropId = parsed.propertyId.toLowerCase();
       setSelectedPropertyId(parsed.propertyId);
       setPropertyNotFound(false);
-      const match = apiProperties.find(
-        (p) =>
-          String(p.id) === String(parsed.propertyId) ||
-          p.slug === parsed.propertyId ||
-          (p.slug && p.slug.toLowerCase() === parsed.propertyId?.toLowerCase())
-      );
+      const match = apiProperties.find((p) => {
+        if (String(p.id) === String(parsed.propertyId)) return true;
+        if (p.slug && p.slug.toLowerCase() === lowerPropId) return true;
+        const tSlug = toTitleSlug(p.title);
+        return Boolean(tSlug && (tSlug === lowerPropId || `${tSlug}-${p.id}` === lowerPropId));
+      });
       if (match) {
         setSelectedProperty(match);
         setIsPropertyLoading(false);
@@ -297,10 +320,20 @@ export default function App() {
       const parsedId = parsed.authorityId ? Number(parsed.authorityId) : NaN;
       setSelectedAuthorityId(!isNaN(parsedId) && parsedId > 0 ? parsedId : null);
     } else if (parsed.page === 'authority-property-detail' && parsed.authorityPropertyId) {
-      setSelectedAuthorityPropertyId(parsed.authorityPropertyId);
+      const extractedAuthId = extractEntityId(parsed.authorityPropertyId) || parsed.authorityPropertyId;
+      setSelectedAuthorityPropertyId(extractedAuthId);
       setSelectedAuthorityProperty((prev) =>
-        prev && String(prev.id) === String(parsed.authorityPropertyId) ? prev : null
+        prev && String(prev.id) === String(extractedAuthId) ? prev : null
       );
+    } else if (parsed.page === 'auction-detail' && parsed.auctionId) {
+      const extractedAuctionId = extractEntityId(parsed.auctionId);
+      const parsedAId = Number(extractedAuctionId || parsed.auctionId);
+      setSelectedAuctionId(!isNaN(parsedAId) && parsedAId > 0 ? parsedAId : null);
+      getAuctionAssetById(extractedAuctionId || parsed.auctionId)
+        .then((res) => {
+          if (res && res.asset) setSelectedAuctionAsset(res.asset);
+        })
+        .catch(() => {});
     } else if (parsed.page !== 'property-detail') {
       setSelectedPropertyId(null);
       setIsPropertyLoading(false);
@@ -318,10 +351,11 @@ export default function App() {
     setAuthorityBackPage(fromPage);
     setSelectedAuthorityProperty(property);
     setSelectedAuthorityPropertyId(property.id);
-    const targetUrl = `/authority-properties/${property.id}`;
+    const slugOrId = buildEntitySlug(property.title, property.id);
+    const targetUrl = `/authority-properties/${slugOrId}`;
     if (window.location.pathname !== targetUrl) {
       window.history.pushState(
-        { page: 'authority-property-detail', authorityPropertyId: String(property.id) },
+        { page: 'authority-property-detail', authorityPropertyId: slugOrId },
         '',
         targetUrl
       );
@@ -346,7 +380,9 @@ export default function App() {
 
   const handleSelectProperty = (property: Property) => {
     setSelectedProperty(property);
-    const slugOrId = property.slug || property.id;
+    const slugOrId =
+      (property.slug && property.slug.trim()) ||
+      buildEntitySlug(property.title, property.id);
     setSelectedPropertyId(String(slugOrId));
     setPropertyNotFound(false);
     setIsPropertyLoading(false);
@@ -361,9 +397,10 @@ export default function App() {
   const handleSelectAuction = (asset: AuctionAsset) => {
     setSelectedAuctionAsset(asset);
     setSelectedAuctionId(asset.id);
-    const targetUrl = `/auction/${asset.id}`;
+    const slugOrId = buildEntitySlug(asset.title, asset.id);
+    const targetUrl = `/auction-asset/${slugOrId}`;
     if (window.location.pathname !== targetUrl) {
-      window.history.pushState({ page: 'auction-detail', auctionId: asset.id }, '', targetUrl);
+      window.history.pushState({ page: 'auction-detail', auctionId: slugOrId }, '', targetUrl);
     }
     setCurrentPage('auction-detail');
     window.scrollTo({ top: 0, behavior: 'smooth' });

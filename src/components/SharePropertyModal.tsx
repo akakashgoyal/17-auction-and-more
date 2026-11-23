@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Property, AuthorityProperty, AuctionAsset } from '../types';
-import { getShareableUrl, OFFICIAL_SITE_URL } from '../utils/routes';
+import { getShareableUrl, OFFICIAL_SITE_URL, buildEntitySlug } from '../utils/routes';
+import { generatePageMetadata } from '../utils/propertyMetadata';
 import { useApi } from '../context/ApiContext';
 import { getPropertyFallbackImage } from '../data/fallbackImages';
 import { PropertyWatermark } from './PropertyWatermark';
@@ -64,31 +65,47 @@ export const SharePropertyModal: React.FC<SharePropertyModalProps> = ({
 
   const isPlatformShare = isWebsiteShare || (!property && !authorityProperty && !auctionAsset);
 
-  // Determine unique clean URL to share
+  // Determine unique clean URL, title, and preview image to share
+  const currentBrowserPath =
+    typeof window !== 'undefined' && window.location && window.location.pathname
+      ? window.location.pathname
+      : '/';
+  const rawPlatformTarget =
+    customShareUrl && customShareUrl.trim() ? customShareUrl.trim() : currentBrowserPath;
+  const pageMeta = isPlatformShare ? generatePageMetadata(rawPlatformTarget, effectiveBaseUrl) : null;
+
   let shareUrl = effectiveBaseUrl;
   if (customShareUrl && customShareUrl.trim()) {
     const raw = customShareUrl.trim();
     if (raw.startsWith('http://') || raw.startsWith('https://')) {
       try {
         const u = new URL(raw);
-        shareUrl = `${effectiveBaseUrl}${u.pathname || ''}${u.search || ''}`;
+        const p = u.pathname || '/';
+        shareUrl = p === '/' ? effectiveBaseUrl : `${effectiveBaseUrl}${p}${u.search || ''}`;
       } catch {
         shareUrl = raw;
       }
     } else {
       const cleanPath = raw.startsWith('/') ? raw : `/${raw}`;
-      shareUrl = `${effectiveBaseUrl}${cleanPath}`;
+      shareUrl = cleanPath === '/' ? effectiveBaseUrl : `${effectiveBaseUrl}${cleanPath}`;
     }
   } else if (property && property.id) {
-    shareUrl = getShareableUrl('property-detail', String(property.slug || property.id), effectiveBaseUrl);
+    const propSlug = (property.slug && property.slug.trim()) || buildEntitySlug(property.title, property.id);
+    shareUrl = getShareableUrl('property-detail', propSlug, effectiveBaseUrl);
   } else if (authorityProperty && authorityProperty.id) {
-    shareUrl = getShareableUrl('authority-property-detail', String(authorityProperty.id), effectiveBaseUrl);
+    const authSlug = buildEntitySlug(authorityProperty.title, authorityProperty.id);
+    shareUrl = getShareableUrl('authority-property-detail', authSlug, effectiveBaseUrl);
   } else if (auctionAsset && auctionAsset.id) {
-    shareUrl = getShareableUrl('auction-detail', String(auctionAsset.id), effectiveBaseUrl);
+    const assetSlug = buildEntitySlug(auctionAsset.title, auctionAsset.id);
+    shareUrl = getShareableUrl('auction-detail', assetSlug, effectiveBaseUrl);
+  } else if (pageMeta) {
+    shareUrl = pageMeta.url;
   }
 
   // Display Image resolution with safe fallback
-  let displayImage = 'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=1200&q=80';
+  let displayImage =
+    pageMeta?.imageUrl ||
+    'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=1200&q=80';
   if (property) {
     displayImage =
       (property.images && property.images.length > 0 ? property.images[0] : '') ||
@@ -105,7 +122,9 @@ export const SharePropertyModal: React.FC<SharePropertyModalProps> = ({
   }
 
   // Strictly clean Title only (no extra description/price/ref suffixes)
-  let shareTitle = `${settings?.company_name || 'Auctions & More'} — India's Premier Distressed Asset Platform`;
+  let shareTitle =
+    pageMeta?.ogTitle ||
+    `${settings?.company_name || 'Auctions & More'} — India's Premier Distressed Asset Platform`;
   if (property && property.title) {
     shareTitle = property.title.trim();
   } else if (authorityProperty && authorityProperty.title) {
@@ -160,15 +179,11 @@ export const SharePropertyModal: React.FC<SharePropertyModalProps> = ({
   };
 
   // Uniform sharing across all platforms: Image (via OG tags) + ONLY Title + Link
-  const titleWithLinkText = isPlatformShare ? shareUrl : `${shareTitle}\n${shareUrl}`;
+  const titleWithLinkText = `${shareTitle}\n${shareUrl}`;
   const whatsappUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(titleWithLinkText)}`;
   const linkedinUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl)}`;
-  const telegramUrl = isPlatformShare
-    ? `https://t.me/share/url?url=${encodeURIComponent(shareUrl)}`
-    : `https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(shareTitle)}`;
-  const twitterUrl = isPlatformShare
-    ? `https://twitter.com/intent/tweet?url=${encodeURIComponent(shareUrl)}`
-    : `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareTitle)}&url=${encodeURIComponent(shareUrl)}`;
+  const telegramUrl = `https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(shareTitle)}`;
+  const twitterUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareTitle)}&url=${encodeURIComponent(shareUrl)}`;
   const emailUrl = `mailto:?subject=${encodeURIComponent(shareTitle)}&body=${encodeURIComponent(titleWithLinkText)}`;
 
   const handleNativeShare = async () => {

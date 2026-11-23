@@ -2,7 +2,7 @@ import { Property, AuthorityProperty, AuctionAsset } from '../types';
 import { BlogPost } from '../data/blogData';
 import { formatINR } from './storage';
 import { getPropertyFallbackImage, DEFAULT_PROPERTY_FALLBACK_IMAGE } from '../data/fallbackImages';
-import { OFFICIAL_SITE_URL } from './routes';
+import { OFFICIAL_SITE_URL, buildEntitySlug, parsePathname } from './routes';
 
 export interface GeneratedMetadata {
   title: string;
@@ -120,9 +120,12 @@ export function generatePropertyMetadata(
   }
   const imageType = inferImageMimeType(imageUrl);
 
-  // Canonical Property URL matching shared slug/ID cleanly
+  // Canonical Property URL matching property slug cleanly
   const cleanBase = baseUrl.replace(/\/+$/, '');
-  const canonicalSegment = (preferredSlugOrId && preferredSlugOrId.trim()) || property.slug || propId;
+  const canonicalSegment =
+    (property.slug && property.slug.trim()) ||
+    (preferredSlugOrId && preferredSlugOrId.trim()) ||
+    propId;
   const encodedSegment = encodeURIComponent(canonicalSegment).replace(/%2F/gi, '/');
   const propertyUrl = canonicalSegment ? `${cleanBase}/property/${encodedSegment}` : `${cleanBase}/`;
 
@@ -198,7 +201,8 @@ export function generateAuthorityPropertyMetadata(
 
   let rawImg = prop.primary_image || (prop.images && prop.images[0] ? prop.images[0].image_url : null);
   const imageUrl = ensureAbsoluteImageUrl(rawImg, baseUrl);
-  const propertyUrl = `${baseUrl.replace(/\/+$/, '')}/authority-properties/${propId}`;
+  const propSlug = buildEntitySlug(prop.title, prop.id);
+  const propertyUrl = `${baseUrl.replace(/\/+$/, '')}/authority-properties/${propSlug || propId}`;
 
   const jsonLd = {
     '@context': 'https://schema.org',
@@ -256,7 +260,8 @@ export function generateAuctionAssetMetadata(
   const description = `Listing ID: ${assetId} (Ref: ${refNo}, Lot: ${lotNo}). ${category} auction in ${locationText}. Reserve: ${priceFormatted}. Verified commercial liquidation. View catalog on Auctions & More.`;
 
   const imageUrl = ensureAbsoluteImageUrl(asset.asset_image, baseUrl);
-  const assetUrl = `${baseUrl.replace(/\/+$/, '')}/auction-asset/${assetId}`;
+  const assetSlug = buildEntitySlug(asset.title, asset.id);
+  const assetUrl = `${baseUrl.replace(/\/+$/, '')}/auction-asset/${assetSlug || assetId}`;
 
   const jsonLd = {
     '@context': 'https://schema.org',
@@ -349,7 +354,7 @@ export function generateDefaultMetadata(baseUrl: string = OFFICIAL_SITE_URL): Ge
     title: "Auctions & More — India's Premier Distressed Asset Platform",
     ogTitle: "Auctions & More — India's Premier Distressed Asset Platform",
     description: "India's premier distressed asset and bank auction platform at auctionsandmore.in. Explore SARFAESI, IBC and DRT properties with live bidding updates, deadline alerts, and tailored investor matching.",
-    includeSocialDescription: true,
+    includeSocialDescription: false,
     imageUrl: DEFAULT_PROPERTY_FALLBACK_IMAGE,
     url: `${cleanBase}/`,
     type: 'website',
@@ -364,6 +369,162 @@ export function generateDefaultMetadata(baseUrl: string = OFFICIAL_SITE_URL): Ge
         '@type': 'SearchAction',
         target: `${cleanBase}/properties?search={search_term_string}`,
         'query-input': 'required name=search_term_string',
+      },
+    },
+  };
+}
+
+/**
+ * Generate dedicated single-page Open Graph, Twitter, and Schema.org metadata for any website route
+ */
+export function generatePageMetadata(
+  pathnameOrUrl: string = '/',
+  baseUrl: string = OFFICIAL_SITE_URL
+): GeneratedMetadata {
+  const cleanBase = baseUrl.replace(/\/+$/, '');
+
+  let normalizedPath = '/';
+  const rawInput = (pathnameOrUrl || '/').trim();
+  if (/^https?:\/\//i.test(rawInput)) {
+    try {
+      const parsedUrl = new URL(rawInput);
+      normalizedPath = parsedUrl.pathname || '/';
+    } catch {
+      normalizedPath = '/';
+    }
+  } else {
+    const [pathOnly] = rawInput.split('?');
+    const noHash = pathOnly.split('#')[0].trim();
+    normalizedPath = noHash.startsWith('/') ? noHash : `/${noHash}`;
+  }
+  if (normalizedPath.length > 1) {
+    normalizedPath = normalizedPath.replace(/\/+$/, '');
+  }
+
+  const route = parsePathname(normalizedPath);
+  const canonicalPath =
+    route.page === 'home'
+      ? '/'
+      : route.page === 'not-found'
+      ? '/404'
+      : normalizedPath || '/';
+  const pageUrl = canonicalPath === '/' ? `${cleanBase}/` : `${cleanBase}${canonicalPath}`;
+
+  const PAGE_META_MAP: Record<
+    string,
+    { title: string; description: string; imageUrl?: string }
+  > = {
+    home: {
+      title: "Auctions & More — India's Premier Distressed Asset Platform",
+      description:
+        "India's premier distressed asset and bank auction platform. Explore SARFAESI, IBC and DRT properties across India.",
+      imageUrl: DEFAULT_PROPERTY_FALLBACK_IMAGE,
+    },
+    about: {
+      title: 'About Auctions & More — Mandate Advisory & Distressed Asset Specialists',
+      description:
+        'Learn about Auctions & More Pvt Ltd, our institutional mandate expertise, legal due diligence, and distressed asset advisory across India.',
+      imageUrl: DEFAULT_PROPERTY_FALLBACK_IMAGE,
+    },
+    property: {
+      title: 'Verified Bank Auction Properties Across India | Auctions & More',
+      description:
+        'Browse verified SARFAESI, IBC, and DRT bank auction properties across residential, commercial, and industrial categories.',
+      imageUrl: DEFAULT_PROPERTY_FALLBACK_IMAGE,
+    },
+    'authority-properties': {
+      title: 'Government & Development Authority Properties | Auctions & More',
+      description:
+        'Explore DDA, YEIDA, HUDA, UPSIDA and statutory development authority auction properties.',
+      imageUrl: DEFAULT_PROPERTY_FALLBACK_IMAGE,
+    },
+    'authority-wise-properties': {
+      title: 'Authority-Wise Property Directory | Auctions & More',
+      description:
+        'Filter and browse verified government authority properties organized by statutory development authority.',
+      imageUrl: DEFAULT_PROPERTY_FALLBACK_IMAGE,
+    },
+    'scrap-auctions': {
+      title: 'Industrial Scrap Auctions & Material Lots | Auctions & More',
+      description:
+        'Verified ferrous, non-ferrous, e-waste, and industrial scrap auction lots across India.',
+      imageUrl:
+        'https://images.unsplash.com/photo-1581092160607-ee22621dd758?auto=format&fit=crop&w=1200&q=80',
+    },
+    'plant-machinery-auctions': {
+      title: 'Plant & Machinery Auctions | Auctions & More',
+      description:
+        'Verified industrial plant, manufacturing machinery, and equipment liquidation auctions.',
+      imageUrl:
+        'https://images.unsplash.com/photo-1581092160607-ee22621dd758?auto=format&fit=crop&w=1200&q=80',
+    },
+    'auction-management': {
+      title: 'Industrial Auction Asset Management Desk | Auctions & More',
+      description:
+        'Manage institutional scrap and plant & machinery auction assets on Auctions & More.',
+      imageUrl:
+        'https://images.unsplash.com/photo-1581092160607-ee22621dd758?auto=format&fit=crop&w=1200&q=80',
+    },
+    blogs: {
+      title: 'Bank Auction Insights, SARFAESI Guides & Advisory | Auctions & More',
+      description:
+        'Read legal guides, SARFAESI Act insights, bidding strategies, and auction market updates.',
+      imageUrl: DEFAULT_PROPERTY_FALLBACK_IMAGE,
+    },
+    faq: {
+      title: 'Frequently Asked Questions — Bank Auction Guide | Auctions & More',
+      description:
+        'Answers to common questions about EMD deposits, e-auction bidding, possession, and title clearance.',
+      imageUrl: DEFAULT_PROPERTY_FALLBACK_IMAGE,
+    },
+    contact: {
+      title: 'Contact Auctions & More — Investor Advisory & Helpdesk',
+      description:
+        'Reach out to our auction advisory desk for site inspections, EMD support, and mandate inquiries.',
+      imageUrl: DEFAULT_PROPERTY_FALLBACK_IMAGE,
+    },
+    privacy: {
+      title: 'Privacy Policy | Auctions & More',
+      description: 'Privacy Policy and data protection practices at Auctions & More.',
+      imageUrl: DEFAULT_PROPERTY_FALLBACK_IMAGE,
+    },
+    terms: {
+      title: 'Terms & Conditions | Auctions & More',
+      description: 'Terms and Conditions governing platform access and auction advisory services.',
+      imageUrl: DEFAULT_PROPERTY_FALLBACK_IMAGE,
+    },
+    'not-found': {
+      title: 'Page Not Found | Auctions & More',
+      description: 'The requested page could not be found on Auctions & More.',
+      imageUrl: DEFAULT_PROPERTY_FALLBACK_IMAGE,
+    },
+  };
+
+  if (route.page === 'home' && !normalizedPath.startsWith('/home') && normalizedPath === '/') {
+    return generateDefaultMetadata(baseUrl);
+  }
+
+  const pageConfig = PAGE_META_MAP[route.page] || PAGE_META_MAP.home;
+
+  return {
+    title: pageConfig.title,
+    ogTitle: pageConfig.title,
+    description: pageConfig.description,
+    includeSocialDescription: false,
+    imageUrl: pageConfig.imageUrl || DEFAULT_PROPERTY_FALLBACK_IMAGE,
+    url: pageUrl,
+    type: 'website',
+    siteName: 'Auctions & More',
+    jsonLd: {
+      '@context': 'https://schema.org',
+      '@type': 'WebPage',
+      name: pageConfig.title,
+      description: pageConfig.description,
+      url: pageUrl,
+      isPartOf: {
+        '@type': 'WebSite',
+        name: 'Auctions & More',
+        url: cleanBase,
       },
     },
   };

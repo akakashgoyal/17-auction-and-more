@@ -34,9 +34,10 @@ export const PropertyModal: React.FC<PropertyModalProps> = ({
   onExpressInterest,
 }) => {
   const { settings } = useApi();
+  const [activeImage, setActiveImage] = useState(0);
+
   if (!property) return null;
 
-  const [activeImage, setActiveImage] = useState(0);
   const discountPercent = calculateDiscount(property.reservePrice, property.marketEstimate);
 
   return (

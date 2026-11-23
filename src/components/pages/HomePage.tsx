@@ -902,7 +902,10 @@ export const HomePage: React.FC<HomePageProps> = ({
                       if (onSelectAuthorityProperty) {
                         onSelectAuthorityProperty(prop);
                       } else {
-                        onNavigate('authority-property-detail', `/authority-properties/${prop.id}`);
+                        const slugOrId = prop.title
+                          ? `${prop.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')}-${prop.id}`
+                          : String(prop.id);
+                        onNavigate('authority-property-detail', `/authority-properties/${slugOrId}`);
                       }
                     }}
                     onSelectAuthority={(authId) => {
@@ -1000,7 +1003,10 @@ export const HomePage: React.FC<HomePageProps> = ({
                       if (onSelectAuction) {
                         onSelectAuction(selected);
                       } else {
-                        onNavigate('auction-detail', `/auction/${selected.id}`);
+                        const slugOrId = selected.title
+                          ? `${selected.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')}-${selected.id}`
+                          : String(selected.id);
+                        onNavigate('auction-detail', `/auction-asset/${slugOrId}`);
                       }
                     }}
                     onShare={() =>
