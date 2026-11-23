@@ -127,10 +127,9 @@ export const PropertyDetailPage: React.FC<PropertyDetailPageProps> = ({
         typeof window !== 'undefined' &&
         window.location &&
         property.slug &&
-        property.slug.trim() &&
-        (window.location.pathname.startsWith('/property/') || window.location.pathname.startsWith('/properties/'))
+        property.slug.trim()
       ) {
-        const expectedPath = `/property/${property.slug.trim()}`;
+        const expectedPath = `/${property.slug.trim().replace(/^\/+/, '')}`;
         if (window.location.pathname !== expectedPath) {
           window.history.replaceState(
             { page: 'property-detail', propertyId: property.slug.trim() },

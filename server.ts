@@ -17,7 +17,7 @@ import {
   renderHtmlHeadTags,
   GeneratedMetadata,
 } from './src/utils/propertyMetadata.ts';
-import { extractEntityId } from './src/utils/routes.ts';
+import { extractEntityId, parsePathname } from './src/utils/routes.ts';
 
 // Ensure Node prefers IPv4 when resolving backend API hostnames to avoid IPv6 connect timeouts
 dns.setDefaultResultOrder('ipv4first');
@@ -420,6 +420,17 @@ async function resolveMetadataForPath(rawPath: string, baseUrl: string): Promise
         return generateBlogMetadata(rawBlog, baseUrl);
       }
     }
+  }
+
+  // 5. Root-level Bank Auction Property Detail: /:slug (without /property/ prefix)
+  const parsedRoute = parsePathname(cleanPath);
+  if (parsedRoute.page === 'property-detail' && parsedRoute.propertyId) {
+    const rawProp = await fetchProperty(parsedRoute.propertyId);
+    if (rawProp) {
+      const normalized = normalizeProperty(rawProp);
+      return generatePropertyMetadata(normalized, baseUrl, parsedRoute.propertyId);
+    }
+    return generatePageMetadata('/404', baseUrl);
   }
 
   // Dedicated Single-Page Metadata for all website pages (/, /properties, /about, /contact, etc.)

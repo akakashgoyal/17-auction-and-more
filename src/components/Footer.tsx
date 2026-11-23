@@ -231,13 +231,13 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate, onOpenLegal, onSelec
               {recentProperties.map((prop: Property) => (
                 <a
                   key={prop.id}
-                  href={`/property/${prop.slug || prop.id}`}
+                  href={`/${prop.slug || prop.id}`}
                   onClick={(e) => {
                     e.preventDefault();
                     if (onSelectProperty) {
                       onSelectProperty(prop);
                     } else {
-                      handleNav('property-detail', `/property/${prop.slug || prop.id}`);
+                      handleNav('property-detail', `/${prop.slug || prop.id}`);
                     }
                   }}
                   className="group block p-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 hover:border-[#D89B30]/40 transition-all cursor-pointer"

@@ -59,7 +59,7 @@ export const ROUTE_PATH_MAP: Record<PageRoute, string> = {
   home: '/',
   about: '/about',
   property: '/properties',
-  'property-detail': '/property',
+  'property-detail': '/',
   'authority-properties': '/authority-properties',
   'authority-wise-properties': '/authority-properties/authority',
   'authority-property-detail': '/authority-properties',
@@ -235,6 +235,19 @@ export function parsePathname(pathname: string): RouteState {
     return { page: 'terms' };
   }
 
+  // Explicit 404 page
+  if (lowerPath === '/404') {
+    return { page: 'not-found' };
+  }
+
+  // Root-level Property Slug Route: /:slug (without /property/ prefix)
+  if (cleanPath.startsWith('/') && cleanPath.length > 1) {
+    const rootSlug = cleanPath.slice(1).trim();
+    if (rootSlug && !rootSlug.includes('/') && !rootSlug.includes('.') && rootSlug.toLowerCase() !== 'api') {
+      return { page: 'property-detail', propertyId: rootSlug };
+    }
+  }
+
   // Explicit 404 page for any unmapped URL
   return { page: 'not-found' };
 }
@@ -302,7 +315,7 @@ export function getCurrentOriginUrl(pathnameAndSearch?: string): string {
  */
 export function getCleanUrl(page: PageRoute, paramId?: string): string {
   if (page === 'property-detail' && paramId) {
-    return `/property/${paramId}`;
+    return `/${paramId.replace(/^\/+/, '')}`;
   }
   if (page === 'authority-wise-properties') {
     return paramId ? `/authority-properties/authority/${paramId}` : '/authority-properties/authority';

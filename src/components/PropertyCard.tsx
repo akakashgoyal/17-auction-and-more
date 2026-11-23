@@ -76,7 +76,7 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({
     return () => clearInterval(interval);
   }, [property.auctionDate]);
 
-  const { banks } = useApi();
+  const { banks, openShareModal } = useApi();
   const [imageError, setImageError] = useState(false);
   const [bankLogoFailed, setBankLogoFailed] = useState(false);
   const rawImage = property.images && property.images.length > 0 ? property.images[0] : null;
@@ -425,20 +425,23 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({
           </button>
 
           {/* Quick Share Button */}
-          {onShareProperty && (
-            <button
-              id={`btn-share-${property.id}`}
-              onClick={(e) => {
-                e.stopPropagation();
+          <button
+            id={`btn-share-${property.id}`}
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              if (onShareProperty) {
                 onShareProperty(property);
-              }}
-              className="p-2.5 rounded-xl bg-[#FAF8F5] hover:bg-[#FAF1DE] border border-[#E8E2D5] text-[#9A6007] hover:text-[#142533] transition-colors cursor-pointer"
-              title="Share Property"
-              aria-label="Share Property"
-            >
-              <Share2 className="w-4 h-4" />
-            </button>
-          )}
+              } else {
+                openShareModal(property);
+              }
+            }}
+            className="p-2.5 rounded-xl bg-[#FAF8F5] hover:bg-[#FAF1DE] border border-[#E8E2D5] text-[#9A6007] hover:text-[#142533] transition-colors cursor-pointer"
+            title="Share Property"
+            aria-label="Share Property"
+          >
+            <Share2 className="w-4 h-4" />
+          </button>
         </div>
       </div>
     </article>

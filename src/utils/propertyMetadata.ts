@@ -126,8 +126,8 @@ export function generatePropertyMetadata(
     (property.slug && property.slug.trim()) ||
     (preferredSlugOrId && preferredSlugOrId.trim()) ||
     propId;
-  const encodedSegment = encodeURIComponent(canonicalSegment).replace(/%2F/gi, '/');
-  const propertyUrl = canonicalSegment ? `${cleanBase}/property/${encodedSegment}` : `${cleanBase}/`;
+  const encodedSegment = encodeURIComponent(canonicalSegment.replace(/^\/+/, '')).replace(/%2F/gi, '/');
+  const propertyUrl = canonicalSegment ? `${cleanBase}/${encodedSegment}` : `${cleanBase}/`;
 
   // Structured Data (RealEstateListing)
   const jsonLd = {
@@ -504,7 +504,9 @@ export function generatePageMetadata(
     return generateDefaultMetadata(baseUrl);
   }
 
-  const pageConfig = PAGE_META_MAP[route.page] || PAGE_META_MAP.home;
+  const pageConfig =
+    PAGE_META_MAP[route.page] ||
+    (route.page === 'property-detail' ? PAGE_META_MAP['not-found'] : PAGE_META_MAP.home);
 
   return {
     title: pageConfig.title,

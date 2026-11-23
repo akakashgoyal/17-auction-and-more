@@ -386,7 +386,7 @@ export default function App() {
     setSelectedPropertyId(String(slugOrId));
     setPropertyNotFound(false);
     setIsPropertyLoading(false);
-    const targetUrl = `/property/${slugOrId}`;
+    const targetUrl = `/${String(slugOrId).replace(/^\/+/, '')}`;
     if (window.location.pathname !== targetUrl) {
       window.history.pushState({ page: 'property-detail', propertyId: slugOrId }, '', targetUrl);
     }
