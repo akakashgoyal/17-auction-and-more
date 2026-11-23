@@ -1023,7 +1023,7 @@ export function normalizeFaq(raw: any, index: number): FAQItem {
  */
 export function resolveCoverImageUrl(coverImage?: string | null): string {
   if (!coverImage || typeof coverImage !== 'string' || !coverImage.trim()) {
-    return 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?auto=format&fit=crop&w=1200&q=80';
+    return 'https://images.unsplash.com/photo-1560518883-ce09059eeffa?fit=crop&w=1200&h=630&q=80&fm=jpg';
   }
   const trimmed = coverImage.trim();
   if (trimmed.startsWith('http://') || trimmed.startsWith('https://') || trimmed.startsWith('data:')) {

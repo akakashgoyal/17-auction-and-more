@@ -11,8 +11,17 @@
   # Handle CORS if needed
   Header always set Access-Control-Allow-Origin "*"
 
-  # Prevent looping on the entry point
+  # Prevent looping on dynamic OG renderer and static entry point
+  RewriteRule ^og-render\.php$ - [L]
   RewriteRule ^index\.html$ - [L]
+
+  # Serve dynamic Open Graph / Twitter / Schema.org HTML tags to social & search crawlers
+  # (runs before physical file check so root "/" also receives server-rendered OG metadata)
+  RewriteCond %{REQUEST_URI} !^/og-render\.php$ [NC]
+  RewriteCond %{REQUEST_URI} !\.(?:js|css|png|jpg|jpeg|gif|svg|webp|ico|woff|woff2|ttf|eot|json|xml|txt|map|pdf)$ [NC]
+  RewriteCond %{HTTP_USER_AGENT} (LinkedInBot|facebookexternalhit|Facebot|Twitterbot|WhatsApp|TelegramBot|Slackbot|Discordbot|Pinterest|Applebot|Embedly|SkypeUriPreview|redditbot|vkShare|W3C_Validator|Googlebot|bingbot|DuckDuckBot|Baiduspider|YandexBot|curl|Wget|python-requests|okhttp|node-fetch|axios) [NC,OR]
+  RewriteCond %{QUERY_STRING} (?:^|&)og_preview=1(?:&|$) [NC]
+  RewriteRule ^(.*)$ /og-render.php [L,QSA]
 
   # If the requested path exists as a physical file, serve it directly
   RewriteCond %{REQUEST_FILENAME} !-f
@@ -21,7 +30,7 @@
   # If the requested path exists as a symlink, serve it directly
   RewriteCond %{REQUEST_FILENAME} !-l
 
-  # Rewrite all internal SPA routes (/authority-properties, /property/*, etc.) to index.html
+  # Rewrite all internal SPA routes (/authority-properties, /<slug>, etc.) to index.html
   RewriteRule . /index.html [L]
 </IfModule>
 

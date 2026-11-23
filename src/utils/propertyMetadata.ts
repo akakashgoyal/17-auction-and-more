@@ -449,21 +449,21 @@ export function generatePageMetadata(
       description:
         'Verified ferrous, non-ferrous, e-waste, and industrial scrap auction lots across India.',
       imageUrl:
-        'https://images.unsplash.com/photo-1581092160607-ee22621dd758?auto=format&fit=crop&w=1200&q=80',
+        'https://images.unsplash.com/photo-1581092160607-ee22621dd758?fit=crop&w=1200&h=630&q=80&fm=jpg',
     },
     'plant-machinery-auctions': {
       title: 'Plant & Machinery Auctions | Auctions & More',
       description:
         'Verified industrial plant, manufacturing machinery, and equipment liquidation auctions.',
       imageUrl:
-        'https://images.unsplash.com/photo-1581092160607-ee22621dd758?auto=format&fit=crop&w=1200&q=80',
+        'https://images.unsplash.com/photo-1581092160607-ee22621dd758?fit=crop&w=1200&h=630&q=80&fm=jpg',
     },
     'auction-management': {
       title: 'Industrial Auction Asset Management Desk | Auctions & More',
       description:
         'Manage institutional scrap and plant & machinery auction assets on Auctions & More.',
       imageUrl:
-        'https://images.unsplash.com/photo-1581092160607-ee22621dd758?auto=format&fit=crop&w=1200&q=80',
+        'https://images.unsplash.com/photo-1581092160607-ee22621dd758?fit=crop&w=1200&h=630&q=80&fm=jpg',
     },
     blogs: {
       title: 'Bank Auction Insights, SARFAESI Guides & Advisory | Auctions & More',

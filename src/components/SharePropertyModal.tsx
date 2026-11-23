@@ -51,15 +51,19 @@ export const SharePropertyModal: React.FC<SharePropertyModalProps> = ({
       ? window.location.origin.replace(/\/+$/, '')
       : OFFICIAL_SITE_URL;
 
-  const isLocalhost =
-    currentBrowserOrigin.includes('localhost') || currentBrowserOrigin.includes('127.0.0.1');
+  const isLocalOrPrivatePreview =
+    currentBrowserOrigin.includes('localhost') ||
+    currentBrowserOrigin.includes('127.0.0.1') ||
+    currentBrowserOrigin.includes('ais-dev-') ||
+    currentBrowserOrigin.includes('ais-pre-') ||
+    currentBrowserOrigin.endsWith('.run.app');
 
-  // If on localhost or user specifically toggled official domain, use OFFICIAL_SITE_URL.
-  // Otherwise use the active current deployment origin so links match where the user is browsing.
+  // If on localhost/private preview or user specifically toggled official domain, use OFFICIAL_SITE_URL
+  // so LinkedInBot and WhatsApp scrapers can always crawl the backend OG metadata cleanly.
   const effectiveBaseUrl =
     customBaseUrl && customBaseUrl.trim()
       ? customBaseUrl.replace(/\/+$/, '')
-      : useOfficialDomain || isLocalhost
+      : useOfficialDomain || isLocalOrPrivatePreview
       ? OFFICIAL_SITE_URL
       : currentBrowserOrigin;
 
@@ -102,10 +106,10 @@ export const SharePropertyModal: React.FC<SharePropertyModalProps> = ({
     shareUrl = pageMeta.url;
   }
 
-  // Display Image resolution with safe fallback
+  // Display Image resolution with safe 1200x630 JPEG fallback
   let displayImage =
     pageMeta?.imageUrl ||
-    'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=1200&q=80';
+    'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?fit=crop&w=1200&h=630&q=80&fm=jpg';
   if (property) {
     displayImage =
       (property.images && property.images.length > 0 ? property.images[0] : '') ||
@@ -114,11 +118,11 @@ export const SharePropertyModal: React.FC<SharePropertyModalProps> = ({
     displayImage =
       authorityProperty.primary_image ||
       (authorityProperty.images && authorityProperty.images.length > 0 ? authorityProperty.images[0].image_url : '') ||
-      'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=1200&q=80';
+      'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?fit=crop&w=1200&h=630&q=80&fm=jpg';
   } else if (auctionAsset) {
     displayImage =
       auctionAsset.asset_image ||
-      'https://images.unsplash.com/photo-1581092160607-ee22621dd758?auto=format&fit=crop&w=1200&q=80';
+      'https://images.unsplash.com/photo-1581092160607-ee22621dd758?fit=crop&w=1200&h=630&q=80&fm=jpg';
   }
 
   // Strictly clean Title only (no extra description/price/ref suffixes)
@@ -178,13 +182,12 @@ export const SharePropertyModal: React.FC<SharePropertyModalProps> = ({
     }
   };
 
-  // Uniform sharing across all platforms: Image (via OG tags) + ONLY Title + Link
-  const titleWithLinkText = `${shareTitle}\n${shareUrl}`;
-  const whatsappUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(titleWithLinkText)}`;
+  // Uniform sharing across all platforms: Image + Linked Title via backend OG tags (no separate duplicate link text)
+  const whatsappUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(shareUrl)}`;
   const linkedinUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl)}`;
-  const telegramUrl = `https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(shareTitle)}`;
-  const twitterUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareTitle)}&url=${encodeURIComponent(shareUrl)}`;
-  const emailUrl = `mailto:?subject=${encodeURIComponent(shareTitle)}&body=${encodeURIComponent(titleWithLinkText)}`;
+  const telegramUrl = `https://t.me/share/url?url=${encodeURIComponent(shareUrl)}`;
+  const twitterUrl = `https://twitter.com/intent/tweet?url=${encodeURIComponent(shareUrl)}`;
+  const emailUrl = `mailto:?subject=${encodeURIComponent(shareTitle)}&body=${encodeURIComponent(shareUrl)}`;
 
   const handleNativeShare = async () => {
     if (typeof navigator !== 'undefined' && navigator.share) {

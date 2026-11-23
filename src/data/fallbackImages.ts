@@ -5,27 +5,27 @@
  */
 
 export const DEFAULT_PROPERTY_FALLBACK_IMAGE =
-  'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=1200&q=80';
+  'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?fit=crop&w=1200&h=630&q=80&fm=jpg';
 
 export const PROPERTY_TYPE_FALLBACK_IMAGES: Record<string, string> = {
   Residential:
-    'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1600585154340-be6161a56a0c?fit=crop&w=1200&h=630&q=80&fm=jpg',
   Commercial:
-    'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?fit=crop&w=1200&h=630&q=80&fm=jpg',
   Industrial:
-    'https://images.unsplash.com/photo-1581092160607-ee22621dd758?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1581092160607-ee22621dd758?fit=crop&w=1200&h=630&q=80&fm=jpg',
   Land:
-    'https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1500382017468-9049fed747ef?fit=crop&w=1200&h=630&q=80&fm=jpg',
   Hospitality:
-    'https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1566073771259-6a8506099945?fit=crop&w=1200&h=630&q=80&fm=jpg',
   'Mixed-Use':
-    'https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?fit=crop&w=1200&h=630&q=80&fm=jpg',
   Agricultural:
-    'https://images.unsplash.com/photo-1500382017468-9049fed747ef?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1500382017468-9049fed747ef?fit=crop&w=1200&h=630&q=80&fm=jpg',
   Institutional:
-    'https://images.unsplash.com/photo-1555854877-bab0e564b8d5?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1555854877-bab0e564b8d5?fit=crop&w=1200&h=630&q=80&fm=jpg',
   'Special Purpose':
-    'https://images.unsplash.com/photo-1577495508048-b635879837f1?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1577495508048-b635879837f1?fit=crop&w=1200&h=630&q=80&fm=jpg',
 };
 
 /**
