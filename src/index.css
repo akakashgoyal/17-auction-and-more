@@ -63,12 +63,18 @@ h1, h2, h3, .font-serif-title {
   display: flex;
   width: max-content;
   will-change: transform;
-  animation: ticker-scroll 38s linear infinite;
+  animation: ticker-scroll 120s linear infinite;
 }
 
 .animate-ticker-scroll:hover,
 .animate-ticker-scroll:focus-within {
   animation-play-state: paused;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-ticker-scroll {
+    animation-play-state: paused;
+  }
 }
 
 /* Continuous Bank Logos Marquee */

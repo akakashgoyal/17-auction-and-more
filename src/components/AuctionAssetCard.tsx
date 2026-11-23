@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { AuctionAsset } from '../types';
 import { formatINR } from '../utils/storage';
 import { PropertyWatermark } from './PropertyWatermark';
 import { useApi } from '../context/ApiContext';
+import { resolveMatchedBankByFields } from '../utils/bankUtils';
 import {
   MapPin,
   Calendar,
@@ -28,8 +29,20 @@ export const AuctionAssetCard: React.FC<AuctionAssetCardProps> = ({
   onEnquire,
   onShare,
 }) => {
-  const { openAuctionAssetEnquiryModal } = useApi();
+  const { openAuctionAssetEnquiryModal, banks } = useApi();
   const [imageError, setImageError] = useState(false);
+  const [bankLogoFailed, setBankLogoFailed] = useState(false);
+
+  const matchedBankInfo = useMemo(
+    () => resolveMatchedBankByFields({ bankName: asset.bank_name }, banks),
+    [asset.bank_name, banks]
+  );
+
+  useEffect(() => {
+    setBankLogoFailed(false);
+  }, [asset.id, matchedBankInfo.logoUrl]);
+
+  const bankLogoUrl = !bankLogoFailed ? matchedBankInfo.logoUrl : null;
 
   const normalizedStatus = (asset.status || '').toLowerCase().trim();
   const statusConfig =
@@ -155,10 +168,23 @@ export const AuctionAssetCard: React.FC<AuctionAssetCardProps> = ({
             )}
           </div>
 
-          {asset.bank_name && (
-            <div className="flex items-center gap-1 text-[11px] text-white/90 bg-black/50 px-2 py-0.5 rounded backdrop-blur-xs truncate max-w-[45%]">
-              <Building2 className="w-3 h-3 text-[#D89B30] shrink-0" />
-              <span className="truncate font-medium">{asset.bank_name}</span>
+          {(asset.bank_name || bankLogoUrl) && (
+            <div className="flex items-center gap-1.5 text-[11px] text-white/95 bg-black/60 px-2 py-0.5 rounded backdrop-blur-xs truncate max-w-[50%]">
+              {bankLogoUrl ? (
+                <span className="h-4 w-6 px-0.5 py-0.5 rounded bg-white flex items-center justify-center shrink-0 overflow-hidden">
+                  <img
+                    src={bankLogoUrl}
+                    alt={`${asset.bank_name || 'Bank'} logo`}
+                    onError={() => setBankLogoFailed(true)}
+                    className="max-h-full max-w-full object-contain"
+                    loading="lazy"
+                    decoding="async"
+                  />
+                </span>
+              ) : (
+                <Building2 className="w-3 h-3 text-[#D89B30] shrink-0" />
+              )}
+              {asset.bank_name && <span className="truncate font-medium">{asset.bank_name}</span>}
             </div>
           )}
         </div>

@@ -11,6 +11,8 @@ import { parsePathname, getCleanUrl, getOfficialUrl } from './utils/routes';
 import {
   generatePropertyMetadata,
   generateAuthorityPropertyMetadata,
+  generateAuctionAssetMetadata,
+  generateBlogMetadata,
   generateDefaultMetadata,
   updateClientPageMetadata,
 } from './utils/propertyMetadata';
@@ -207,10 +209,17 @@ export default function App() {
     const origin = window.location.origin || 'https://auctionsandmore.in';
 
     if (currentPage === 'property-detail' && selectedProperty) {
-      const meta = generatePropertyMetadata(selectedProperty, origin);
+      const canonicalParam = selectedPropertyId || selectedProperty.slug || selectedProperty.id;
+      const meta = generatePropertyMetadata(selectedProperty, origin, canonicalParam);
       updateClientPageMetadata(meta);
     } else if (currentPage === 'authority-property-detail' && selectedAuthorityProperty) {
       const meta = generateAuthorityPropertyMetadata(selectedAuthorityProperty, origin);
+      updateClientPageMetadata(meta);
+    } else if (currentPage === 'auction-detail' && selectedAuctionAsset) {
+      const meta = generateAuctionAssetMetadata(selectedAuctionAsset, origin);
+      updateClientPageMetadata(meta);
+    } else if (currentPage === 'blog-detail' && selectedBlogPost) {
+      const meta = generateBlogMetadata(selectedBlogPost, origin);
       updateClientPageMetadata(meta);
     } else if (currentPage === 'home') {
       const meta = generateDefaultMetadata(origin);
@@ -219,7 +228,9 @@ export default function App() {
   }, [
     currentPage,
     selectedProperty,
+    selectedPropertyId,
     selectedAuthorityProperty,
+    selectedAuctionAsset,
     selectedBlogPost,
     selectedAuctionId,
     selectedAuthorityPropertyId,

@@ -1,6 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Property } from '../types';
 import { formatINR, calculateDiscount } from '../utils/storage';
+import { useApi } from '../context/ApiContext';
+import { resolveMatchedBank } from '../utils/bankUtils';
 import {
   MapPin,
   Clock,
@@ -74,7 +76,9 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({
     return () => clearInterval(interval);
   }, [property.auctionDate]);
 
+  const { banks } = useApi();
   const [imageError, setImageError] = useState(false);
+  const [bankLogoFailed, setBankLogoFailed] = useState(false);
   const rawImage = property.images && property.images.length > 0 ? property.images[0] : null;
   const fallbackImage = getPropertyFallbackImage(property.propertyType);
   const displayImage = !imageError && rawImage ? rawImage : fallbackImage;
@@ -88,12 +92,18 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({
   const postAuctionPrice = hasPostAuctionPrice ? property.postAuctionPrice! : 0;
   const postAuctionDate = property.postAuctionPriceDate;
 
-  // Resolve official bank name for auction property (strictly for content display, not on image)
-  const bankName =
-    (property.bank_name && property.bank_name.trim()) ||
-    (property.bankName && property.bankName.trim()) ||
-    ((property.raw as any)?.bank_name && String((property.raw as any).bank_name).trim()) ||
-    '';
+  // Resolve official bank name and logo for auction property (strictly for content display, not on image)
+  const matchedBankInfo = useMemo(
+    () => resolveMatchedBank(property, banks),
+    [property, banks]
+  );
+
+  useEffect(() => {
+    setBankLogoFailed(false);
+  }, [property.id, matchedBankInfo.logoUrl]);
+
+  const bankName = matchedBankInfo.displayName;
+  const bankLogoUrl = !bankLogoFailed ? matchedBankInfo.logoUrl : null;
 
   const formatOfferDate = (dateStr?: string) => {
     if (!dateStr || !dateStr.trim()) return '';
@@ -215,13 +225,28 @@ export const PropertyCard: React.FC<PropertyCardProps> = ({
             )}
           </div>
 
-          {/* Official Bank Name (Strictly in card details, NOT on image) */}
-          {bankName && (
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#FAF8F5] border border-[#EAE3D2] text-[#142533] text-xs font-semibold w-fit max-w-full shadow-2xs">
-              <Landmark className="w-3.5 h-3.5 text-[#D89B30] shrink-0" />
-              <span className="truncate">
-                Bank: <strong className="font-extrabold text-[#142533]">{bankName}</strong>
-              </span>
+          {/* Official Bank Name & Logo (Strictly in card details, NOT on image) */}
+          {(bankName || bankLogoUrl) && (
+            <div className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-[#FAF8F5] border border-[#EAE3D2] text-[#142533] text-xs font-semibold w-fit max-w-full shadow-2xs">
+              {bankLogoUrl ? (
+                <span className="h-5 sm:h-6 w-8 sm:w-9 px-1 py-0.5 rounded bg-white border border-[#E2DDD2] flex items-center justify-center shrink-0 overflow-hidden">
+                  <img
+                    src={bankLogoUrl}
+                    alt={`${bankName || 'Bank'} logo`}
+                    onError={() => setBankLogoFailed(true)}
+                    className="max-h-full max-w-full object-contain"
+                    loading="lazy"
+                    decoding="async"
+                  />
+                </span>
+              ) : (
+                <Landmark className="w-3.5 h-3.5 text-[#D89B30] shrink-0" />
+              )}
+              {bankName && (
+                <span className="truncate">
+                  Bank: <strong className="font-extrabold text-[#142533]">{bankName}</strong>
+                </span>
+              )}
             </div>
           )}
 

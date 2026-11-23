@@ -1,8 +1,13 @@
+import dns from 'dns';
 import express from 'express';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { normalizeProperty } from './src/services/api.ts';
+import {
+  normalizeProperty,
+  normalizeAuthorityProperty,
+  normalizeAuctionAsset,
+} from './src/services/api.ts';
 import {
   generatePropertyMetadata,
   generateAuthorityPropertyMetadata,
@@ -12,6 +17,9 @@ import {
   renderHtmlHeadTags,
   GeneratedMetadata,
 } from './src/utils/propertyMetadata.ts';
+
+// Ensure Node prefers IPv4 when resolving backend API hostnames to avoid IPv6 connect timeouts
+dns.setDefaultResultOrder('ipv4first');
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -36,6 +44,7 @@ const propertyCache = new Map<string, CacheEntry<any>>();
 const authorityPropertyCache = new Map<string, CacheEntry<any>>();
 const auctionAssetCache = new Map<string, CacheEntry<any>>();
 const blogCache = new Map<string, CacheEntry<any>>();
+let propertyCatalogCache: CacheEntry<any[]> | null = null;
 const CACHE_TTL_MS = 10 * 60 * 1000;
 
 function getFromCache<T>(cache: Map<string, CacheEntry<T>>, key: string): T | null {
@@ -50,30 +59,118 @@ function setToCache<T>(cache: Map<string, CacheEntry<T>>, key: string, data: T):
   cache.set(key, { data, timestamp: Date.now() });
 }
 
+async function fetchJsonWithTimeout(url: string, timeoutMs: number = 7000): Promise<any | null> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(url, {
+        signal: controller.signal,
+        headers: { Accept: 'application/json' },
+      });
+      clearTimeout(timeout);
+      if (res.ok) {
+        const contentType = res.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+          return await res.json();
+        }
+        return null;
+      }
+      if (res.status >= 400 && res.status < 500 && res.status !== 429) {
+        return null;
+      }
+    } catch {
+      clearTimeout(timeout);
+    }
+  }
+  return null;
+}
+
 /**
- * Determine effective base URL for the incoming request
+ * Determine effective public base URL for the incoming request.
+ * Always honors the real incoming host header so preview/prod URLs (and LinkedIn crawlers)
+ * never receive an internal dev container URL in og:url or canonical tags.
  */
 function getRequestBaseUrl(req: express.Request): string {
-  const forwardedProto = (req.headers['x-forwarded-proto'] as string) || req.protocol || 'https';
-  const forwardedHost = (req.headers['x-forwarded-host'] as string) || req.get('host') || 'auctionsandmore.in';
+  const rawProto = (req.headers['x-forwarded-proto'] as string) || req.protocol || 'https';
+  const forwardedProto = rawProto.split(',')[0].trim() || 'https';
+  const rawHost = (req.headers['x-forwarded-host'] as string) || req.get('host') || '';
+  const forwardedHost = rawHost.split(',')[0].trim();
 
   if (forwardedHost.includes('auctionsandmore.in')) {
     return 'https://auctionsandmore.in';
+  }
+
+  const isLocalHost =
+    !forwardedHost ||
+    forwardedHost.startsWith('localhost') ||
+    forwardedHost.startsWith('127.0.0.1') ||
+    forwardedHost.startsWith('0.0.0.0');
+
+  if (!isLocalHost) {
+    return `${forwardedProto}://${forwardedHost}`;
   }
 
   if (process.env.APP_URL && !process.env.APP_URL.includes('MY_APP_URL')) {
     return process.env.APP_URL.replace(/\/+$/, '');
   }
 
-  return `${forwardedProto}://${forwardedHost}`;
+  return forwardedHost ? `${forwardedProto}://${forwardedHost}` : 'https://auctionsandmore.in';
+}
+
+function toTitleSlug(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '');
+}
+
+async function getCachedPropertyCatalog(): Promise<any[]> {
+  if (propertyCatalogCache && Date.now() - propertyCatalogCache.timestamp < CACHE_TTL_MS) {
+    return propertyCatalogCache.data;
+  }
+
+  const allItems: any[] = [];
+  let page = 1;
+  let lastPage = 1;
+
+  do {
+    const json = await fetchJsonWithTimeout(`${BACKEND_API_BASE}/properties?per_page=100&page=${page}`, 7000);
+    const pageList = Array.isArray(json?.data) ? json.data : [];
+    if (pageList.length === 0) break;
+    allItems.push(...pageList);
+    lastPage = Number(json?.pagination?.last_page || 1);
+    page += 1;
+  } while (page <= Math.min(lastPage, 10));
+
+  if (allItems.length > 0) {
+    propertyCatalogCache = { data: allItems, timestamp: Date.now() };
+  }
+  return allItems;
+}
+
+function matchesPropertyIdentifier(item: any, clean: string): boolean {
+  if (!item) return false;
+  const lowerClean = clean.toLowerCase();
+  if (String(item.id) === clean) return true;
+  if (item.slug && String(item.slug).toLowerCase() === lowerClean) return true;
+  if (item.property_title || item.title) {
+    const titleSlug = toTitleSlug(String(item.property_title || item.title));
+    if (titleSlug && (`${titleSlug}-${item.id}` === lowerClean || titleSlug === lowerClean)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**
- * Fetch property details from Laravel API by ID or slug
+ * Fetch property details from Laravel API by ID or slug accurately
  */
 async function fetchProperty(idOrSlug: string): Promise<any | null> {
   const clean = idOrSlug.trim();
-  const cached = getFromCache(propertyCache, clean);
+  if (!clean) return null;
+
+  const cached = getFromCache(propertyCache, clean.toLowerCase());
   if (cached) return cached;
 
   // Extract potential numeric ID (e.g., "111", "property-slug-111", or "111-property-slug")
@@ -88,56 +185,57 @@ async function fetchProperty(idOrSlug: string): Promise<any | null> {
   }
 
   if (numericId) {
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 3500);
-      const res = await fetch(`${BACKEND_API_BASE}/properties/${numericId}`, {
-        signal: controller.signal,
-        headers: { Accept: 'application/json' },
-      });
-      clearTimeout(timeout);
-      if (res.ok) {
-        const json: any = await res.json();
-        const data = json?.data || json;
-        if (data && (data.id || data.property_title || data.title)) {
-          setToCache(propertyCache, clean, data);
-          setToCache(propertyCache, String(data.id), data);
-          if (data.slug) setToCache(propertyCache, String(data.slug), data);
-          return data;
-        }
-      }
-    } catch {
-      // Continue to search fallback
+    const json = await fetchJsonWithTimeout(`${BACKEND_API_BASE}/properties/${numericId}`, 7000);
+    const data = json?.data || json;
+    if (data && (data.id || data.property_title || data.title)) {
+      setToCache(propertyCache, clean.toLowerCase(), data);
+      setToCache(propertyCache, String(data.id), data);
+      if (data.slug) setToCache(propertyCache, String(data.slug).toLowerCase(), data);
+      return data;
     }
   }
 
-  // Fallback: search by slug or title
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 3500);
-    const res = await fetch(`${BACKEND_API_BASE}/properties?search=${encodeURIComponent(clean)}`, {
-      signal: controller.signal,
-      headers: { Accept: 'application/json' },
-    });
-    clearTimeout(timeout);
-    if (res.ok) {
-      const json: any = await res.json();
-      const list = Array.isArray(json?.data) ? json.data : [];
-      const match = list.find(
-        (p: any) =>
-          String(p.id) === clean ||
-          p.slug === clean ||
-          (p.slug && p.slug.toLowerCase() === clean.toLowerCase()) ||
-          (p.property_title && p.property_title.toLowerCase().includes(clean.replace(/-/g, ' ').toLowerCase()))
-      ) || list[0];
+  // Resolve slug across full paginated catalog (no wrong-item fallback)
+  const catalog = await getCachedPropertyCatalog();
+  const catalogMatch = catalog.find((p) => matchesPropertyIdentifier(p, clean));
 
-      if (match) {
-        setToCache(propertyCache, clean, match);
-        return match;
+  if (catalogMatch) {
+    let fullData = catalogMatch;
+    if (catalogMatch.id) {
+      const detailJson = await fetchJsonWithTimeout(`${BACKEND_API_BASE}/properties/${catalogMatch.id}`, 7000);
+      const detailData = detailJson?.data || detailJson;
+      if (detailData && (detailData.id || detailData.property_title || detailData.title)) {
+        fullData = detailData;
       }
     }
-  } catch {
-    // Graceful fallback
+    setToCache(propertyCache, clean.toLowerCase(), fullData);
+    if (fullData.id) setToCache(propertyCache, String(fullData.id), fullData);
+    if (fullData.slug) setToCache(propertyCache, String(fullData.slug).toLowerCase(), fullData);
+    return fullData;
+  }
+
+  // Fallback: live search for newly created properties not yet in 10m catalog cache
+  const searchQuery = clean.replace(/-/g, ' ');
+  const searchJson = await fetchJsonWithTimeout(
+    `${BACKEND_API_BASE}/properties?per_page=50&search=${encodeURIComponent(searchQuery)}`,
+    7000
+  );
+  const searchList = Array.isArray(searchJson?.data) ? searchJson.data : [];
+  const searchMatch = searchList.find((p: any) => matchesPropertyIdentifier(p, clean));
+
+  if (searchMatch) {
+    let fullData = searchMatch;
+    if (searchMatch.id) {
+      const detailJson = await fetchJsonWithTimeout(`${BACKEND_API_BASE}/properties/${searchMatch.id}`, 7000);
+      const detailData = detailJson?.data || detailJson;
+      if (detailData && (detailData.id || detailData.property_title || detailData.title)) {
+        fullData = detailData;
+      }
+    }
+    setToCache(propertyCache, clean.toLowerCase(), fullData);
+    if (fullData.id) setToCache(propertyCache, String(fullData.id), fullData);
+    if (fullData.slug) setToCache(propertyCache, String(fullData.slug).toLowerCase(), fullData);
+    return fullData;
   }
 
   return null;
@@ -151,24 +249,11 @@ async function fetchAuthorityProperty(id: string): Promise<any | null> {
   const cached = getFromCache(authorityPropertyCache, clean);
   if (cached) return cached;
 
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 3500);
-    const res = await fetch(`${BACKEND_API_BASE}/authority-properties/${clean}`, {
-      signal: controller.signal,
-      headers: { Accept: 'application/json' },
-    });
-    clearTimeout(timeout);
-    if (res.ok) {
-      const json: any = await res.json();
-      const data = json?.data || json;
-      if (data) {
-        setToCache(authorityPropertyCache, clean, data);
-        return data;
-      }
-    }
-  } catch {
-    // fallback
+  const json = await fetchJsonWithTimeout(`${BACKEND_API_BASE}/authority-properties/${encodeURIComponent(clean)}`, 7000);
+  const data = json?.data || json;
+  if (data && (data.id || data.title)) {
+    setToCache(authorityPropertyCache, clean, data);
+    return data;
   }
   return null;
 }
@@ -181,24 +266,11 @@ async function fetchAuctionAsset(id: string): Promise<any | null> {
   const cached = getFromCache(auctionAssetCache, clean);
   if (cached) return cached;
 
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 3500);
-    const res = await fetch(`${BACKEND_API_BASE}/auction-assets/${clean}`, {
-      signal: controller.signal,
-      headers: { Accept: 'application/json' },
-    });
-    clearTimeout(timeout);
-    if (res.ok) {
-      const json: any = await res.json();
-      const data = json?.data || json;
-      if (data) {
-        setToCache(auctionAssetCache, clean, data);
-        return data;
-      }
-    }
-  } catch {
-    // fallback
+  const json = await fetchJsonWithTimeout(`${BACKEND_API_BASE}/auction-assets/${encodeURIComponent(clean)}`, 7000);
+  const data = json?.data || json;
+  if (data && (data.id || data.title)) {
+    setToCache(auctionAssetCache, clean, data);
+    return data;
   }
   return null;
 }
@@ -211,24 +283,11 @@ async function fetchBlogPost(slug: string): Promise<any | null> {
   const cached = getFromCache(blogCache, clean);
   if (cached) return cached;
 
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 3500);
-    const res = await fetch(`${BACKEND_API_BASE}/blogs/${clean}`, {
-      signal: controller.signal,
-      headers: { Accept: 'application/json' },
-    });
-    clearTimeout(timeout);
-    if (res.ok) {
-      const json: any = await res.json();
-      const data = json?.data || json;
-      if (data) {
-        setToCache(blogCache, clean, data);
-        return data;
-      }
-    }
-  } catch {
-    // fallback
+  const json = await fetchJsonWithTimeout(`${BACKEND_API_BASE}/blogs/${encodeURIComponent(clean)}`, 7000);
+  const data = json?.data || json;
+  if (data && (data.id || data.title)) {
+    setToCache(blogCache, clean, data);
+    return data;
   }
   return null;
 }
@@ -280,7 +339,12 @@ app.get('/api/og-preview', async (req, res) => {
  */
 async function resolveMetadataForPath(rawPath: string, baseUrl: string): Promise<GeneratedMetadata> {
   const [pathOnly] = rawPath.split('?');
-  const cleanPath = pathOnly.split('#')[0].replace(/\/+$/, '') || '/';
+  let cleanPath = pathOnly.split('#')[0].replace(/\/+$/, '') || '/';
+  try {
+    cleanPath = decodeURIComponent(cleanPath);
+  } catch {
+    // keep raw path if malformed URI component
+  }
   const lowerPath = cleanPath.toLowerCase();
 
   // 1. Bank Auction Property Detail: /property/:idOrSlug or /properties/:idOrSlug
@@ -291,7 +355,7 @@ async function resolveMetadataForPath(rawPath: string, baseUrl: string): Promise
       const rawProp = await fetchProperty(param);
       if (rawProp) {
         const normalized = normalizeProperty(rawProp);
-        return generatePropertyMetadata(normalized, baseUrl);
+        return generatePropertyMetadata(normalized, baseUrl, param);
       }
       // Fallback with param ID
       return generatePropertyMetadata(
@@ -300,7 +364,8 @@ async function resolveMetadataForPath(rawPath: string, baseUrl: string): Promise
           title: `Auction Property #${param}`,
           description: `Bank auction mandate #${param}. View verified documents, photos, reserve price, and bidding schedule on Auctions & More.`,
         },
-        baseUrl
+        baseUrl,
+        param
       );
     }
   }
@@ -314,7 +379,8 @@ async function resolveMetadataForPath(rawPath: string, baseUrl: string): Promise
     if (param) {
       const rawProp = await fetchAuthorityProperty(param);
       if (rawProp) {
-        return generateAuthorityPropertyMetadata(rawProp, baseUrl);
+        const normalized = normalizeAuthorityProperty(rawProp);
+        return generateAuthorityPropertyMetadata(normalized, baseUrl);
       }
       return generateAuthorityPropertyMetadata(
         { id: Number(param) || 0, title: `Authority Property #${param}` },
@@ -330,7 +396,8 @@ async function resolveMetadataForPath(rawPath: string, baseUrl: string): Promise
     if (param) {
       const rawAsset = await fetchAuctionAsset(param);
       if (rawAsset) {
-        return generateAuctionAssetMetadata(rawAsset, baseUrl);
+        const normalized = normalizeAuctionAsset(rawAsset);
+        return generateAuctionAssetMetadata(normalized, baseUrl);
       }
       return generateAuctionAssetMetadata(
         { id: Number(param) || 0, title: `Auction Asset #${param}` },

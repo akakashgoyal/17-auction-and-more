@@ -28,12 +28,13 @@ import {
   Gavel,
 } from 'lucide-react';
 import { PageRoute } from '../Navbar';
-import { getShareableUrl } from '../../utils/routes';
+import { getShareableUrl, OFFICIAL_SITE_URL } from '../../utils/routes';
 import { AuctionCtaBanner } from '../AuctionCtaBanner';
 import { useApi } from '../../context/ApiContext';
 import { getYouTubeEmbedUrl, getYouTubeThumbnailUrl, getYouTubeWatchUrl } from '../../utils/videoUtils';
 import { BlogCardMedia } from '../BlogCardMedia';
 import { BlogVideoModal } from '../BlogVideoModal';
+import { generateBlogMetadata, updateClientPageMetadata } from '../../utils/propertyMetadata';
 
 interface BlogDetailPageProps {
   post?: BlogPost | null;
@@ -145,6 +146,16 @@ export const BlogDetailPage: React.FC<BlogDetailPageProps> = ({
 
   const post = activePost || initialPost;
 
+  useEffect(() => {
+    if (post) {
+      const baseUrl =
+        typeof window !== 'undefined' && window.location && window.location.origin
+          ? window.location.origin
+          : OFFICIAL_SITE_URL;
+      updateClientPageMetadata(generateBlogMetadata(post, baseUrl));
+    }
+  }, [post]);
+
   const getArticleShareUrl = () => {
     const slugOrId = post ? post.slug || String(post.id) : targetSlug || '';
     return slugOrId ? getShareableUrl('blog-detail', slugOrId) : getShareableUrl('blogs');
@@ -161,7 +172,7 @@ export const BlogDetailPage: React.FC<BlogDetailPageProps> = ({
   const handleShareWhatsApp = () => {
     if (!post) return;
     const url = getArticleShareUrl();
-    const text = encodeURIComponent(`Read this bank auction advisory guide: "${post.title}"\n${url}`);
+    const text = encodeURIComponent(`${post.title}\n${url}`);
     window.open(`https://wa.me/?text=${text}`, '_blank');
   };
 

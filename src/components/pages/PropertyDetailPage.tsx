@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Property, PropertyDocument } from '../../types';
 import { formatINR, calculateDiscount } from '../../utils/storage';
 import { useApi } from '../../context/ApiContext';
 import { getPropertyById } from '../../services/api';
+import { resolveMatchedBank } from '../../utils/bankUtils';
 import {
   ArrowLeft,
   MapPin,
@@ -63,13 +64,21 @@ export const PropertyDetailPage: React.FC<PropertyDetailPageProps> = ({
   const [internalNotFound, setInternalNotFound] = useState<boolean>(initialNotFound);
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
   const [copiedToast, setCopiedToast] = useState(false);
+  const [bankLogoFailed, setBankLogoFailed] = useState(false);
+  const [failedRelatedBankLogos, setFailedRelatedBankLogos] = useState<Record<string, boolean>>({});
 
-  const { properties: apiProperties, settings, openShareModal } = useApi();
+  const { properties: apiProperties, banks, settings, openShareModal } = useApi();
   const primaryPhone = settings?.primary_phone || '';
   const whatsappNumber = settings?.whatsapp_number || '';
 
+  const matchedBankInfo = useMemo(
+    () => resolveMatchedBank(property, banks),
+    [property, banks]
+  );
+
   // Synchronize initial property or fetch complete property record by id/slug from API
   useEffect(() => {
+    setBankLogoFailed(false);
     if (initialProperty) {
       setProperty(initialProperty);
       setInternalLoading(false);
@@ -102,16 +111,21 @@ export const PropertyDetailPage: React.FC<PropertyDetailPageProps> = ({
     }
   }, [initialProperty, propertyIdOrSlug]);
 
+  useEffect(() => {
+    setBankLogoFailed(false);
+  }, [matchedBankInfo.logoUrl]);
+
   // Dynamically update document title, Open Graph, and Twitter metadata
   useEffect(() => {
     if (property) {
       const baseUrl = typeof window !== 'undefined' && window.location && window.location.origin
         ? window.location.origin
         : OFFICIAL_SITE_URL;
-      const meta = generatePropertyMetadata(property, baseUrl);
+      const canonicalParam = propertyIdOrSlug || property.slug || property.id;
+      const meta = generatePropertyMetadata(property, baseUrl, canonicalParam);
       updateClientPageMetadata(meta);
     }
-  }, [property]);
+  }, [property, propertyIdOrSlug]);
 
   const isLoading = initialLoading || internalLoading;
   const isNotFound = initialNotFound || internalNotFound || (!property && !isLoading);
@@ -198,12 +212,14 @@ export const PropertyDetailPage: React.FC<PropertyDetailPageProps> = ({
           ? Number(property.raw.post_auction_price)
           : undefined);
 
-  // Official Bank Name for auction property
+  // Official Bank Name & Matched Logo for auction property
   const bankName =
+    matchedBankInfo.displayName ||
     (property.bank_name && property.bank_name.trim()) ||
     (property.bankName && property.bankName.trim()) ||
     ((property.raw as any)?.bank_name && String((property.raw as any).bank_name).trim()) ||
     '';
+  const bankLogoUrl = !bankLogoFailed ? matchedBankInfo.logoUrl : null;
 
   const hasPostAuctionPrice = Boolean(
     rawPostAuctionPrice !== undefined &&
@@ -383,8 +399,19 @@ export const PropertyDetailPage: React.FC<PropertyDetailPageProps> = ({
             <div className="lg:col-span-8 space-y-4">
               <div className="flex flex-wrap items-center gap-2.5">
                 {bankName && (
-                  <span className="px-3 py-1.5 rounded-lg bg-[#FAF8F5] border border-[#EAE3D2] text-[#142533] text-xs font-bold flex items-center gap-1.5 shadow-2xs">
-                    <Landmark className="w-3.5 h-3.5 text-[#D89B30]" />
+                  <span className="px-3 py-1.5 rounded-lg bg-[#FAF8F5] border border-[#EAE3D2] text-[#142533] text-xs font-bold flex items-center gap-2 shadow-2xs">
+                    {bankLogoUrl ? (
+                      <span className="h-5 sm:h-6 w-8 sm:w-9 px-1 py-0.5 rounded bg-white border border-[#E2DDD2] flex items-center justify-center shrink-0 overflow-hidden">
+                        <img
+                          src={bankLogoUrl}
+                          alt={`${bankName} Logo`}
+                          onError={() => setBankLogoFailed(true)}
+                          className="max-h-full max-w-full object-contain"
+                        />
+                      </span>
+                    ) : (
+                      <Landmark className="w-3.5 h-3.5 text-[#D89B30] shrink-0" />
+                    )}
                     <span>Bank: <strong className="font-extrabold text-[#142533]">{bankName}</strong></span>
                   </span>
                 )}
@@ -825,13 +852,25 @@ export const PropertyDetailPage: React.FC<PropertyDetailPageProps> = ({
                 )}
 
                 {bankName && (
-                  <div className="p-4 rounded-2xl bg-[#FAF8F5] border border-[#E8E2D5]">
-                    <span className="text-[10px] uppercase font-bold text-slate-400 block font-mono">
-                      Bank Name
-                    </span>
-                    <span className="font-bold text-sm sm:text-base text-[#142533] mt-0.5 block truncate">
-                      {bankName}
-                    </span>
+                  <div className="p-4 rounded-2xl bg-[#FAF8F5] border border-[#E8E2D5] col-span-2 sm:col-span-1 flex items-center gap-3 min-w-0">
+                    {bankLogoUrl && (
+                      <div className="h-10 w-14 sm:h-11 sm:w-16 px-1.5 py-1 rounded-xl bg-white border border-[#E2DDD2] flex items-center justify-center shrink-0 overflow-hidden shadow-2xs">
+                        <img
+                          src={bankLogoUrl}
+                          alt={`${bankName} Logo`}
+                          onError={() => setBankLogoFailed(true)}
+                          className="max-h-full max-w-full object-contain"
+                        />
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <span className="text-[10px] uppercase font-bold text-slate-400 block font-mono">
+                        Bank Name
+                      </span>
+                      <span className="font-bold text-sm sm:text-base text-[#142533] mt-0.5 block truncate" title={bankName}>
+                        {bankName}
+                      </span>
+                    </div>
                   </div>
                 )}
               </div>
@@ -843,9 +882,21 @@ export const PropertyDetailPage: React.FC<PropertyDetailPageProps> = ({
                 </div>
                 <div className="divide-y divide-[#E8E2D5]">
                   {bankName && (
-                    <div className="grid grid-cols-3 sm:grid-cols-4 px-4 py-2.5 bg-slate-50">
+                    <div className="grid grid-cols-3 sm:grid-cols-4 px-4 py-2.5 bg-slate-50 items-center gap-2">
                       <span className="text-slate-500 font-mono">Bank Name</span>
-                      <span className="col-span-2 sm:col-span-3 font-mono font-bold text-[#142533]">{bankName}</span>
+                      <div className="col-span-2 sm:col-span-3 flex flex-wrap items-center gap-2.5 min-w-0">
+                        {bankLogoUrl && (
+                          <span className="h-7 w-14 sm:h-8 sm:w-16 px-1.5 py-0.5 rounded-lg bg-white border border-slate-200 flex items-center justify-center shrink-0 overflow-hidden shadow-2xs">
+                            <img
+                              src={bankLogoUrl}
+                              alt={`${bankName} Logo`}
+                              onError={() => setBankLogoFailed(true)}
+                              className="max-h-full max-w-full object-contain"
+                            />
+                          </span>
+                        )}
+                        <span className="font-mono font-bold text-[#142533]">{bankName}</span>
+                      </div>
                     </div>
                   )}
                   {property.propertyReferenceNo && (
@@ -1200,6 +1251,12 @@ export const PropertyDetailPage: React.FC<PropertyDetailPageProps> = ({
                 const relHasMarketEst = relMarketEst > rel.reservePrice;
                 const relDiscount = relHasMarketEst ? calculateDiscount(rel.reservePrice, relMarketEst) : 0;
                 const relImage = rel.images && rel.images.length > 0 ? rel.images[0] : getPropertyFallbackImage(rel.propertyType);
+                const relBankInfo = resolveMatchedBank(rel, banks);
+                const relBankKey = String(rel.id);
+                const relBankLogoUrl =
+                  relBankInfo.logoUrl && !failedRelatedBankLogos[relBankKey]
+                    ? relBankInfo.logoUrl
+                    : null;
                 return (
                   <div
                     key={rel.id}
@@ -1232,9 +1289,37 @@ export const PropertyDetailPage: React.FC<PropertyDetailPageProps> = ({
                     </div>
 
                     <div className="p-5 flex-1 flex flex-col justify-between space-y-3">
-                      <div className="space-y-1">
+                      <div className="space-y-1.5">
                         {rel.propertyType && (
-                          <span className="text-xs text-slate-500 font-medium">{rel.propertyType}</span>
+                          <span className="text-xs text-slate-500 font-medium block">{rel.propertyType}</span>
+                        )}
+                        {(relBankInfo.displayName || relBankLogoUrl) && (
+                          <div className="flex items-center gap-2 px-2 py-1 rounded-lg bg-[#FAF8F5] border border-[#EAE3D2] text-[#142533] text-[11px] font-semibold w-fit max-w-full">
+                            {relBankLogoUrl ? (
+                              <span className="h-5 w-7 px-0.5 py-0.5 rounded bg-white border border-[#E2DDD2] flex items-center justify-center shrink-0 overflow-hidden">
+                                <img
+                                  src={relBankLogoUrl}
+                                  alt={`${relBankInfo.displayName || 'Bank'} logo`}
+                                  onError={() =>
+                                    setFailedRelatedBankLogos((prev) => ({
+                                      ...prev,
+                                      [relBankKey]: true,
+                                    }))
+                                  }
+                                  className="max-h-full max-w-full object-contain"
+                                  loading="lazy"
+                                  decoding="async"
+                                />
+                              </span>
+                            ) : (
+                              <Landmark className="w-3.5 h-3.5 text-[#D89B30] shrink-0" />
+                            )}
+                            {relBankInfo.displayName && (
+                              <span className="truncate font-bold text-[#142533]">
+                                {relBankInfo.displayName}
+                              </span>
+                            )}
+                          </div>
                         )}
                         <h4 className="font-serif font-bold text-sm text-[#142533] group-hover:text-[#9A6007] transition-colors line-clamp-2">
                           {rel.title}

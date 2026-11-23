@@ -5,8 +5,12 @@ import { formatINR } from '../../utils/storage';
 import { getStatusLabelAndColor } from '../AuthorityPropertyCard';
 import { PropertyWatermark } from '../PropertyWatermark';
 import { PageRoute } from '../Navbar';
-import { getShareableUrl } from '../../utils/routes';
+import { getShareableUrl, OFFICIAL_SITE_URL } from '../../utils/routes';
 import { useApi } from '../../context/ApiContext';
+import {
+  generateAuthorityPropertyMetadata,
+  updateClientPageMetadata,
+} from '../../utils/propertyMetadata';
 import {
   ArrowLeft,
   ArrowRight,
@@ -125,6 +129,16 @@ export const AuthorityPropertyDetailPage: React.FC<AuthorityPropertyDetailPagePr
   useEffect(() => {
     fetchDetail();
   }, [fetchDetail]);
+
+  useEffect(() => {
+    if (property) {
+      const baseUrl =
+        typeof window !== 'undefined' && window.location && window.location.origin
+          ? window.location.origin
+          : OFFICIAL_SITE_URL;
+      updateClientPageMetadata(generateAuthorityPropertyMetadata(property, baseUrl));
+    }
+  }, [property]);
 
   const validImages = (property?.images || []).filter(
     (img) => Boolean(img.image_url) && !failedImageIds[img.id]

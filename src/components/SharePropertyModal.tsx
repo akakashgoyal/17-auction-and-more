@@ -1,6 +1,5 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState } from 'react';
 import { Property, AuthorityProperty, AuctionAsset } from '../types';
-import { formatINR } from '../utils/storage';
 import { getShareableUrl, OFFICIAL_SITE_URL } from '../utils/routes';
 import { useApi } from '../context/ApiContext';
 import { getPropertyFallbackImage } from '../data/fallbackImages';
@@ -10,16 +9,10 @@ import {
   Share2,
   Copy,
   Check,
-  Building,
-  MapPin,
-  Calendar,
   ExternalLink,
-  Eye,
   MessageCircle,
   Mail,
   Send,
-  ShieldCheck,
-  Globe,
 } from 'lucide-react';
 
 export interface SharePropertyModalProps {
@@ -87,7 +80,7 @@ export const SharePropertyModal: React.FC<SharePropertyModalProps> = ({
       shareUrl = `${effectiveBaseUrl}${cleanPath}`;
     }
   } else if (property && property.id) {
-    shareUrl = getShareableUrl('property-detail', String(property.id), effectiveBaseUrl);
+    shareUrl = getShareableUrl('property-detail', String(property.slug || property.id), effectiveBaseUrl);
   } else if (authorityProperty && authorityProperty.id) {
     shareUrl = getShareableUrl('authority-property-detail', String(authorityProperty.id), effectiveBaseUrl);
   } else if (auctionAsset && auctionAsset.id) {
@@ -111,44 +104,15 @@ export const SharePropertyModal: React.FC<SharePropertyModalProps> = ({
       'https://images.unsplash.com/photo-1581092160607-ee22621dd758?auto=format&fit=crop&w=1200&q=80';
   }
 
-  // Location string with safe null guards
-  let locationText = 'India';
-  if (property) {
-    const rawLocParts = [
-      property.location?.locality?.trim(),
-      property.location?.city?.trim(),
-      property.location?.state?.trim(),
-    ].filter(Boolean) as string[];
-    const uniqueLocParts: string[] = [];
-    rawLocParts.forEach((part) => {
-      if (!uniqueLocParts.some((p) => p.toLowerCase() === part.toLowerCase())) {
-        uniqueLocParts.push(part);
-      }
-    });
-    locationText = uniqueLocParts.join(', ') || property?.location?.city || property?.location?.address || 'India';
-  } else if (authorityProperty) {
-    locationText = [authorityProperty.city_name, authorityProperty.state_name].filter(Boolean).join(', ') || 'India';
-  } else if (auctionAsset) {
-    locationText = [auctionAsset.city, auctionAsset.state].filter(Boolean).join(', ') || 'India';
-  }
-
-  // Safe share title
+  // Strictly clean Title only (no extra description/price/ref suffixes)
   let shareTitle = `${settings?.company_name || 'Auctions & More'} — India's Premier Distressed Asset Platform`;
   if (property && property.title) {
-    shareTitle = `${property.title.trim()} | Verified Bank Auction Property`;
+    shareTitle = property.title.trim();
   } else if (authorityProperty && authorityProperty.title) {
-    shareTitle = `${authorityProperty.title.trim()} | ${authorityProperty.authority?.name || 'Authority Property'}`;
+    shareTitle = authorityProperty.title.trim();
   } else if (auctionAsset && auctionAsset.title) {
-    shareTitle = `${auctionAsset.title.trim()} | ${auctionAsset.category || 'Auction Asset'}`;
+    shareTitle = auctionAsset.title.trim();
   }
-
-  // Official bank name for property card preview (strictly for content details, NOT on image)
-  const propertyBankName = property
-    ? (property.bank_name && property.bank_name.trim()) ||
-      (property.bankName && property.bankName.trim()) ||
-      ((property.raw as any)?.bank_name && String((property.raw as any).bank_name).trim()) ||
-      ''
-    : '';
 
   // Robust copy helper with textarea fallback (crucial for iframes)
   const copyTextToClipboard = async (text: string): Promise<boolean> => {
@@ -195,12 +159,17 @@ export const SharePropertyModal: React.FC<SharePropertyModalProps> = ({
     }
   };
 
-  // Uniform simple link sharing across all channels
-  // When sharing link directly on WhatsApp/Telegram/Twitter, social platforms automatically render the OpenGraph preview card
-  const whatsappUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(shareUrl)}`;
-  const telegramUrl = `https://t.me/share/url?url=${encodeURIComponent(shareUrl)}`;
-  const twitterUrl = `https://twitter.com/intent/tweet?url=${encodeURIComponent(shareUrl)}`;
-  const emailUrl = `mailto:?subject=${encodeURIComponent(shareTitle)}&body=${encodeURIComponent(shareUrl)}`;
+  // Uniform sharing across all platforms: Image (via OG tags) + ONLY Title + Link
+  const titleWithLinkText = isPlatformShare ? shareUrl : `${shareTitle}\n${shareUrl}`;
+  const whatsappUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(titleWithLinkText)}`;
+  const linkedinUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl)}`;
+  const telegramUrl = isPlatformShare
+    ? `https://t.me/share/url?url=${encodeURIComponent(shareUrl)}`
+    : `https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(shareTitle)}`;
+  const twitterUrl = isPlatformShare
+    ? `https://twitter.com/intent/tweet?url=${encodeURIComponent(shareUrl)}`
+    : `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareTitle)}&url=${encodeURIComponent(shareUrl)}`;
+  const emailUrl = `mailto:?subject=${encodeURIComponent(shareTitle)}&body=${encodeURIComponent(titleWithLinkText)}`;
 
   const handleNativeShare = async () => {
     if (typeof navigator !== 'undefined' && navigator.share) {
@@ -270,195 +239,41 @@ export const SharePropertyModal: React.FC<SharePropertyModalProps> = ({
           {/* Card Label */}
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-mono font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
-              <span>Property Preview</span>
+              <span>Share Preview</span>
             </span>
             <span className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-full font-semibold flex items-center gap-1">
               <Check className="w-3 h-3 text-emerald-600" />
-              <span>Direct Link Sharing</span>
+              <span>Image + Title Link</span>
             </span>
           </div>
 
-          {/* REAL-ESTATE PROPERTY CARD PREVIEW */}
-          <div className="rounded-2xl border border-[#E2DDD2] bg-white overflow-hidden shadow-md group hover:border-[#D89B30]/50 transition-all">
+          {/* CLEAN SOCIAL PREVIEW CARD: Image + Only Title (with Link in Title) */}
+          <a
+            href={shareUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="block rounded-2xl border border-[#E2DDD2] bg-white overflow-hidden shadow-md group hover:border-[#D89B30]/60 transition-all cursor-pointer"
+            title={shareTitle}
+          >
             {/* Visual Header / Property Image */}
             <div className="relative aspect-16/9 w-full bg-slate-900 overflow-hidden">
               <img
                 src={displayImage}
-                alt={authorityProperty?.title || property?.title || auctionAsset?.title || 'Auctions & More'}
+                alt={shareTitle}
                 className="w-full h-full object-cover group-hover:scale-102 transition-transform duration-700"
                 referrerPolicy="no-referrer"
               />
-              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-black/10 pointer-events-none" />
-
-              {/* Watermark in Top Right */}
               <PropertyWatermark variant="corner" position="top-right" size="sm" />
-
-              {/* Category / Type Badge on Top Left */}
-              <div className="absolute top-2.5 left-2.5 flex items-center gap-1.5">
-                <span className="px-2.5 py-1 rounded-lg bg-[#142533]/90 backdrop-blur-xs text-[#D89B30] text-[10px] font-mono font-bold border border-white/15 shadow-xs">
-                  {authorityProperty
-                    ? authorityProperty.authority?.short_name || authorityProperty.authority?.name || 'Authority Property'
-                    : property
-                    ? property.auctionCategory
-                      ? `${property.auctionCategory} Auction`
-                      : property.propertyType || 'Bank Auction'
-                    : auctionAsset
-                    ? auctionAsset.category || 'Industrial Asset'
-                    : 'Bank Auction Platform'}
-                </span>
-              </div>
-
-              {/* Location Strip on Bottom */}
-              <div className="absolute bottom-2.5 left-2.5 right-2.5 flex items-center gap-1.5 text-white text-xs drop-shadow-md truncate">
-                <MapPin className="w-3.5 h-3.5 text-[#D89B30] shrink-0" />
-                <span className="truncate font-medium">{locationText}</span>
-              </div>
             </div>
 
-            {/* Concise Details & Specs */}
-            <div className="p-4 space-y-3 bg-gradient-to-b from-white to-[#FAF8F5]">
-              <div>
-                <h4 className="font-serif text-sm sm:text-base font-bold text-[#142533] line-clamp-2 leading-snug group-hover:text-[#9A6007] transition-colors">
-                  {authorityProperty?.title ||
-                    property?.title ||
-                    auctionAsset?.title ||
-                    "Auctions & More — India's Premier Distressed Asset Platform"}
-                </h4>
-              </div>
-
-              {/* Compact Metrics Grid */}
-              {authorityProperty ? (
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs">
-                  <div>
-                    <span className="text-[9px] font-mono uppercase text-slate-500 block">Reserve Price</span>
-                    <span className="text-sm font-extrabold text-[#142533] font-mono">
-                      {authorityProperty.reserve_price ? formatINR(authorityProperty.reserve_price) : 'On Request'}
-                    </span>
-                  </div>
-
-                  {authorityProperty.emd_amount ? (
-                    <div>
-                      <span className="text-[9px] font-mono uppercase text-slate-500 block">EMD Amount</span>
-                      <span className="text-xs font-bold text-slate-700 font-mono">
-                        {formatINR(authorityProperty.emd_amount)}
-                      </span>
-                    </div>
-                  ) : authorityProperty.area ? (
-                    <div>
-                      <span className="text-[9px] font-mono uppercase text-slate-500 block">Area</span>
-                      <span className="text-xs font-bold text-slate-700 font-mono">
-                        {authorityProperty.area} {authorityProperty.area_unit || ''}
-                      </span>
-                    </div>
-                  ) : null}
-
-                  <div>
-                    <span className="text-[9px] font-mono uppercase text-slate-500 block">Authority</span>
-                    <span className="text-xs font-bold text-[#9A6007] truncate block">
-                      {authorityProperty.authority?.short_name || authorityProperty.authority?.name || 'Statutory Body'}
-                    </span>
-                  </div>
-                </div>
-              ) : property ? (
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs">
-                  <div>
-                    <span className="text-[9px] font-mono uppercase text-slate-500 block">Reserve Price</span>
-                    <span className="text-sm font-extrabold text-[#142533] font-mono">
-                      {property.reservePrice > 0 ? formatINR(property.reservePrice) : 'On Request'}
-                    </span>
-                  </div>
-
-                  {property.emdAmount > 0 && (
-                    <div>
-                      <span className="text-[9px] font-mono uppercase text-slate-500 block">EMD (10%)</span>
-                      <span className="text-xs font-bold text-slate-700 font-mono">
-                        {formatINR(property.emdAmount)}
-                      </span>
-                    </div>
-                  )}
-
-                  {propertyBankName ? (
-                    <div>
-                      <span className="text-[9px] font-mono uppercase text-slate-500 block">Bank Name</span>
-                      <span className="text-xs font-bold text-[#142533] truncate block">
-                        {propertyBankName}
-                      </span>
-                    </div>
-                  ) : property.auctionDate ? (
-                    <div>
-                      <span className="text-[9px] font-mono uppercase text-slate-500 block">Auction Date</span>
-                      <span className="text-xs font-bold text-amber-800 flex items-center gap-1">
-                        <Calendar className="w-3 h-3 text-[#9A6007]" />
-                        <span>
-                          {new Date(property.auctionDate).toLocaleDateString('en-IN', {
-                            day: 'numeric',
-                            month: 'short',
-                          })}
-                        </span>
-                      </span>
-                    </div>
-                  ) : (
-                    <div>
-                      <span className="text-[9px] font-mono uppercase text-slate-500 block">Title Status</span>
-                      <span className="text-xs font-bold text-emerald-700 flex items-center gap-1">
-                        <ShieldCheck className="w-3 h-3 text-emerald-600" />
-                        <span>Verified</span>
-                      </span>
-                    </div>
-                  )}
-                </div>
-              ) : auctionAsset ? (
-                <div className="grid grid-cols-2 gap-2 p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs">
-                  <div>
-                    <span className="text-[9px] font-mono uppercase text-slate-500 block">Reserve Price</span>
-                    <span className="text-sm font-extrabold text-[#142533] font-mono">
-                      {auctionAsset.reserve_price ? formatINR(Number(auctionAsset.reserve_price)) : 'On Request'}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-[9px] font-mono uppercase text-slate-500 block">Category</span>
-                    <span className="text-xs font-bold text-[#9A6007] truncate block">
-                      {auctionAsset.category || 'Plant & Machinery'}
-                    </span>
-                  </div>
-                </div>
-              ) : (
-                <div className="grid grid-cols-2 gap-2 p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs">
-                  <div>
-                    <span className="text-[9px] font-mono uppercase text-slate-500 block">Platform</span>
-                    <span className="text-xs font-bold text-[#142533]">Auctions &amp; More</span>
-                  </div>
-                  <div>
-                    <span className="text-[9px] font-mono uppercase text-slate-500 block">Coverage</span>
-                    <span className="text-xs font-bold text-[#142533]">All Indian States &amp; Banks</span>
-                  </div>
-                </div>
-              )}
-
-              {/* View / Redirect Button */}
-              <div className="pt-1">
-                <a
-                  href={shareUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="w-full py-2.5 px-4 rounded-xl bg-[#142533] hover:bg-[#1E3A52] text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all shadow-md group/btn cursor-pointer"
-                  title="Click to open property details"
-                >
-                  <Eye className="w-4 h-4 text-[#D89B30]" />
-                  <span>
-                    {authorityProperty
-                      ? 'View Authority Property Details'
-                      : property
-                      ? 'View Property Details'
-                      : auctionAsset
-                      ? 'View Auction Asset Details'
-                      : 'Explore Platform'}
-                  </span>
-                  <ExternalLink className="w-3.5 h-3.5 text-slate-300 group-hover/btn:text-white group-hover/btn:translate-x-0.5 transition-transform" />
-                </a>
-              </div>
+            {/* Only Title with Embedded Link */}
+            <div className="p-4 bg-gradient-to-b from-white to-[#FAF8F5] space-y-1.5">
+              <h4 className="font-serif text-sm sm:text-base font-bold text-[#142533] line-clamp-2 leading-snug group-hover:text-[#9A6007] group-hover:underline decoration-[#D89B30] underline-offset-4 transition-colors flex items-start justify-between gap-2">
+                <span>{shareTitle}</span>
+                <ExternalLink className="w-4 h-4 text-[#D89B30] shrink-0 mt-0.5" />
+              </h4>
             </div>
-          </div>
+          </a>
 
           {/* SIMPLE DIRECT SHARE LINK BOX */}
           <div className="space-y-1.5">
@@ -520,16 +335,33 @@ export const SharePropertyModal: React.FC<SharePropertyModalProps> = ({
               Share Direct Link
             </span>
 
-            {/* WhatsApp (Simple Link Share) */}
-            <div>
+            {/* Primary Direct Channels: WhatsApp & LinkedIn */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               <a
                 href={whatsappUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="w-full py-3.5 px-4 rounded-xl bg-[#25D366] hover:bg-[#20bd5a] text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2.5 transition-all shadow-md cursor-pointer"
+                className="w-full py-3.5 px-4 rounded-xl bg-[#25D366] hover:bg-[#20bd5a] text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all shadow-md cursor-pointer"
               >
-                <MessageCircle className="w-5 h-5 fill-white" />
-                <span>Share Link on WhatsApp</span>
+                <MessageCircle className="w-4 h-4 fill-white shrink-0" />
+                <span>Share on WhatsApp</span>
+              </a>
+
+              <a
+                href={linkedinUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-full py-3.5 px-4 rounded-xl bg-[#0A66C2] hover:bg-[#004182] text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all shadow-md cursor-pointer"
+                title="Share property card on LinkedIn"
+              >
+                <svg
+                  className="w-4 h-4 fill-current shrink-0"
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                >
+                  <path d="M19 3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14m-.5 15.5v-5.3a3.26 3.26 0 0 0-3.26-3.26c-.85 0-1.84.52-2.28 1.3v-1.11h-2.79v8.37h2.79v-4.93c0-.77.62-1.4 1.39-1.4a1.4 1.4 0 0 1 1.4 1.4v4.93h2.75M6.88 8.56a1.68 1.68 0 0 0 1.68-1.68c0-.93-.75-1.69-1.68-1.69a1.69 1.69 0 0 0-1.69 1.69c0 .93.76 1.68 1.69 1.68m1.39 9.94v-8.37H5.5v8.37h2.77z" />
+                </svg>
+                <span>Share on LinkedIn</span>
               </a>
             </div>
 

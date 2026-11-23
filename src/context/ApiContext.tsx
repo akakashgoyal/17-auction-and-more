@@ -49,7 +49,8 @@ interface ApiContextValue {
   propertyPagination: PropertyPagination;
   isLoadingProperties: boolean;
   propertiesError: string | null;
-  refreshProperties: (params?: PropertyFilterParams) => Promise<void>;
+  lastPropertiesSyncAt: Date | null;
+  refreshProperties: (params?: PropertyFilterParams, forceRefresh?: boolean) => Promise<void>;
   
   faqs: FAQItem[];
   isLoadingFaqs: boolean;
@@ -147,6 +148,7 @@ export const ApiProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [propertyPagination, setPropertyPagination] = useState<PropertyPagination>(DEFAULT_PROPERTY_PAGINATION);
   const [isLoadingProperties, setIsLoadingProperties] = useState(true);
   const [propertiesError, setPropertiesError] = useState<string | null>(null);
+  const [lastPropertiesSyncAt, setLastPropertiesSyncAt] = useState<Date | null>(null);
   
   const [faqs, setFaqs] = useState<FAQItem[]>([]);
   const [isLoadingFaqs, setIsLoadingFaqs] = useState(true);
@@ -209,13 +211,13 @@ export const ApiProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Request tracking to prevent out-of-order race conditions on search/filter updates
   const activeRequestIdRef = useRef<number>(0);
 
-  // 2. Fetch Properties with optional filters
-  const refreshProperties = useCallback(async (params?: PropertyFilterParams) => {
+  // 2. Fetch Properties with optional filters and controlled forceRefresh
+  const refreshProperties = useCallback(async (params?: PropertyFilterParams, forceRefresh: boolean = false) => {
     const currentRequestId = ++activeRequestIdRef.current;
     setIsLoadingProperties(true);
     setPropertiesError(null);
     try {
-      const res = await getProperties(params);
+      const res = await getProperties(params, forceRefresh);
       // Discard stale responses if a newer request was dispatched
       if (currentRequestId !== activeRequestIdRef.current) return;
 
@@ -236,7 +238,9 @@ export const ApiProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
 
       setPropertyPagination(res.pagination);
-      if (!res.success && res.error) {
+      if (res.success) {
+        setLastPropertiesSyncAt(new Date());
+      } else if (res.error) {
         setPropertiesError(res.error);
       }
     } catch {
@@ -379,10 +383,7 @@ export const ApiProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, []);
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      refreshBanks();
-    }, 200);
-    return () => clearTimeout(timer);
+    refreshBanks();
   }, [refreshBanks]);
 
   // 7. Fetch Active Notices
@@ -530,6 +531,7 @@ export const ApiProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         propertyPagination,
         isLoadingProperties,
         propertiesError,
+        lastPropertiesSyncAt,
         refreshProperties,
         faqs,
         isLoadingFaqs,

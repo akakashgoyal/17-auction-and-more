@@ -122,6 +122,8 @@ export interface Property {
 
   auctionCategory?: string;
   authority: AuthorityType;
+  bankId?: number | string;
+  bankLogo?: string;
   bankName: string;
   bank_name?: string;
   branch?: string;
@@ -152,6 +154,8 @@ export interface Property {
     circleRateEst: string;
     duesPending: string;
   };
+  createdAt?: string;
+  updatedAt?: string;
   raw?: any;
 }
 

@@ -179,7 +179,7 @@ interface ApiResponse<T> {
   raw?: any;
 }
 
-const GET_FRESH_TTL_MS = 60_000;
+const GET_FRESH_TTL_MS = 5 * 60_000;
 const GET_STALE_MAX_AGE_MS = 15 * 60_000;
 const SESSION_CACHE_PREFIX = 'am_api_cache_v2:';
 const MAX_SESSION_ENTRY_BYTES = 180_000;
@@ -402,13 +402,14 @@ function fetchAndCacheGet<T>(
 async function requestJson<T>(
   endpoint: string,
   options: RequestInit = {},
-  fallbackData?: T
+  fallbackData?: T,
+  forceRefresh: boolean = false
 ): Promise<ApiResponse<T>> {
   const url = `${API_BASE_URL}${endpoint.startsWith('/') ? endpoint : `/${endpoint}`}`;
   const method = (options.method || 'GET').toUpperCase();
   const isGet = method === 'GET' && !options.body;
 
-  if (isGet) {
+  if (isGet && !forceRefresh) {
     const memCached = recentGetCache.get(url);
     if (memCached) {
       const age = Date.now() - memCached.timestamp;
@@ -886,8 +887,11 @@ export function normalizeProperty(raw: any, indexFallback: number = 1): Property
 
     auctionCategory: raw.auction_category || undefined,
     authority,
-    bankName: raw.bank_name || undefined,
-    bank_name: raw.bank_name || undefined,
+    bankId: raw.bank_id ?? raw.bank?.id ?? undefined,
+    bankLogo:
+      resolvePropertyImageUrl(raw.bank_logo || raw.bank?.logo) || undefined,
+    bankName: raw.bank_name || raw.bank?.name || undefined,
+    bank_name: raw.bank_name || raw.bank?.name || undefined,
     branch: raw.branch || undefined,
     borrowerName: raw.borrower_name || undefined,
     borrowerRef: raw.borrower_name || `AM-REF-${id}`,
@@ -915,6 +919,8 @@ export function normalizeProperty(raw: any, indexFallback: number = 1): Property
       raw.auction_category ? `Category: ${raw.auction_category}` : 'Clear Statutory Title',
       raw.total_area && raw.area_unit ? `Area: ${raw.total_area} ${raw.area_unit}` : 'Verified Auction Asset',
     ],
+    createdAt: raw.created_at || undefined,
+    updatedAt: raw.updated_at || undefined,
     raw: raw
       ? {
           ...raw,
@@ -1440,8 +1446,8 @@ const inFlightPropertiesRequests = new Map<
   }>
 >();
 
-// Cache TTL: 20 seconds
-const PROPERTIES_CACHE_TTL_MS = 20000;
+// Controlled cache TTL: 5 minutes to avoid excessive background updates
+const PROPERTIES_CACHE_TTL_MS = 5 * 60 * 1000;
 
 // Retain last successful properties across any call to safeguard against 429 rate limit
 let fallbackPropertiesCatalog: Property[] = [];
@@ -1458,7 +1464,10 @@ let fallbackPropertiesPagination: PropertyPagination = {
  * 2. GET /properties
  * Supports: min_price, max_price, property_type, property_sub_type, state_id, auction_category, possession_status, per_page, page
  */
-export async function getProperties(params?: PropertyFilterParams): Promise<{
+export async function getProperties(
+  params?: PropertyFilterParams,
+  forceRefresh: boolean = false
+): Promise<{
   properties: Property[];
   pagination: PropertyPagination;
   fromApi: boolean;
@@ -1514,21 +1523,21 @@ export async function getProperties(params?: PropertyFilterParams): Promise<{
   const endpoint = `/properties${query.toString() ? `?${query.toString()}` : ''}`;
   const now = Date.now();
 
-  // 1. Check in-memory cache
+  // 1. Check in-memory cache (unless forceRefresh requested)
   const cached = propertiesCache.get(endpoint);
-  if (cached && now - cached.timestamp < PROPERTIES_CACHE_TTL_MS) {
+  if (!forceRefresh && cached && now - cached.timestamp < PROPERTIES_CACHE_TTL_MS) {
     return cached.data;
   }
 
   // 2. Check in-flight request
-  if (inFlightPropertiesRequests.has(endpoint)) {
+  if (!forceRefresh && inFlightPropertiesRequests.has(endpoint)) {
     return inFlightPropertiesRequests.get(endpoint)!;
   }
 
   // 3. Initiate request with in-flight tracking
   const fetchPromise = (async () => {
     try {
-      const res = await requestJson<any>(endpoint, { method: 'GET' });
+      const res = await requestJson<any>(endpoint, { method: 'GET' }, undefined, forceRefresh);
 
       if (res.success && Array.isArray(res.data)) {
         const list = res.data.map((item: any, idx: number) => normalizeProperty(item, idx + 1));
@@ -1710,10 +1719,11 @@ export async function getPropertyById(idOrSlug: string | number): Promise<{
     }
   }
 
-  // 3. Search specifically using search parameter (e.g. search=property-in-ghazipur-new-delhi)
+  // 3. Search specifically using normalized keywords (e.g. search=property in east of kailash)
   try {
+    const searchKeywords = cleanStr.replace(/-/g, ' ');
     const searchRes = await requestJson<any>(
-      `/properties?search=${encodeURIComponent(cleanStr)}`,
+      `/properties?per_page=50&search=${encodeURIComponent(searchKeywords)}`,
       { method: 'GET' }
     );
     if (searchRes.success && Array.isArray(searchRes.data) && searchRes.data.length > 0) {
@@ -1768,10 +1778,14 @@ export async function getPropertyById(idOrSlug: string | number): Promise<{
     }
   }
 
-  // 5. Try catalog listing as fallback
+  // 5. Try catalog listing across pages as fallback
   try {
-    const listRes = await getProperties({ per_page: 100 });
-    if (listRes.success && listRes.properties.length > 0) {
+    let page = 1;
+    let lastPage = 1;
+    do {
+      const listRes = await getProperties({ per_page: 100, page });
+      if (!listRes.success || listRes.properties.length === 0) break;
+      lastPage = listRes.pagination?.last_page || 1;
       const match = listRes.properties.find(
         (p) =>
           p.slug === cleanStr ||
@@ -1797,7 +1811,8 @@ export async function getPropertyById(idOrSlug: string | number): Promise<{
           success: true,
         };
       }
-    }
+      page += 1;
+    } while (page <= Math.min(lastPage, 10));
   } catch {
     // Ignore fallback error
   }
@@ -2430,15 +2445,19 @@ export async function getBanks(): Promise<{
 
     const sanitizedBanks: BankItem[] = rawList
       .filter((b: any) => Boolean(b && (b.status === true || b.status === 1 || b.status === '1' || b.status === 'true')))
-      .map((b: any) => ({
-        id: b.id,
-        name: String(b.name || '').trim(),
-        short_name: b.short_name ? String(b.short_name).trim() : null,
-        logo: b.logo && typeof b.logo === 'string' && b.logo.trim() ? b.logo.trim() : null,
-        website_url: b.website_url && typeof b.website_url === 'string' && b.website_url.trim() ? b.website_url.trim() : null,
-        status: true,
-        sort_order: typeof b.sort_order === 'number' ? b.sort_order : (parseInt(b.sort_order, 10) || 0),
-      }))
+      .map((b: any) => {
+        const rawLogo = b.logo && typeof b.logo === 'string' && b.logo.trim() ? b.logo.trim() : null;
+        const resolvedLogo = rawLogo ? resolvePropertyImageUrl(rawLogo) || rawLogo : null;
+        return {
+          id: b.id,
+          name: String(b.name || '').trim(),
+          short_name: b.short_name ? String(b.short_name).trim() : null,
+          logo: resolvedLogo,
+          website_url: b.website_url && typeof b.website_url === 'string' && b.website_url.trim() ? b.website_url.trim() : null,
+          status: true,
+          sort_order: typeof b.sort_order === 'number' ? b.sort_order : (parseInt(b.sort_order, 10) || 0),
+        };
+      })
       // Sort according to sort_order ascending
       .sort((a: BankItem, b: BankItem) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
 

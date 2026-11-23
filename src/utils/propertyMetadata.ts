@@ -8,7 +8,9 @@ export interface GeneratedMetadata {
   title: string;
   ogTitle: string;
   description: string;
+  includeSocialDescription?: boolean;
   imageUrl: string;
+  imageType?: string;
   url: string;
   type: string;
   siteName: string;
@@ -18,6 +20,15 @@ export interface GeneratedMetadata {
   priceFormatted?: string;
   locationText?: string;
   jsonLd: Record<string, any>;
+}
+
+export function inferImageMimeType(url?: string | null): string {
+  if (!url) return 'image/jpeg';
+  const clean = url.split('?')[0].split('#')[0].toLowerCase();
+  if (clean.endsWith('.png')) return 'image/png';
+  if (clean.endsWith('.webp')) return 'image/webp';
+  if (clean.endsWith('.gif')) return 'image/gif';
+  return 'image/jpeg';
 }
 
 export function sanitizeText(text?: string | null): string {
@@ -49,13 +60,18 @@ export function ensureAbsoluteImageUrl(url?: string | null, baseUrl: string = OF
  */
 export function generatePropertyMetadata(
   property: Partial<Property>,
-  baseUrl: string = OFFICIAL_SITE_URL
+  baseUrl: string = OFFICIAL_SITE_URL,
+  preferredSlugOrId?: string
 ): GeneratedMetadata {
   const propId = String(property.id || '');
   const refNo = property.propertyReferenceNo || property.auctionReferenceNo || '';
   const rawTitle = sanitizeText(property.title) || 'Verified Bank Auction Property';
   const propType = property.propertyType || property.category || 'Residential';
-  const bankName = property.bankName || property.authority || 'Verified Bank Mandate';
+  const bankName =
+    (property.bank_name && property.bank_name.trim()) ||
+    (property.bankName && property.bankName.trim()) ||
+    property.authority ||
+    'Verified Bank Mandate';
   const possession = property.possessionStatus || 'Physical Possession';
 
   // Format Location
@@ -73,19 +89,25 @@ export function generatePropertyMetadata(
   const priceFormatted = reservePrice > 0 ? formatINR(reservePrice) : 'Reserve Price on Request';
   const emdFormatted = emdAmount > 0 ? ` (EMD: ${formatINR(emdAmount)})` : '';
 
-  // Title: Contains Property Title + Ref No
-  const ogTitle = refNo ? `${rawTitle} | Ref: ${refNo}` : rawTitle;
+  // Title: Share strictly ONLY the property title across all platforms
+  const ogTitle = rawTitle;
   const pageTitle = refNo
     ? `${rawTitle} (Ref: ${refNo}) | ${bankName} Auction | Auctions & More`
     : `${rawTitle} | ${bankName} Auction | Auctions & More`;
 
-  // Description: Clear, high-impact snippet with Location, Bank, Reserve Price & Possession
+  // Description: Clear, property-specific snippet with Reserve Price, Bank, Location, and Description excerpt
+  const rawDesc = sanitizeText(property.description);
+  const descExcerpt = rawDesc
+    ? rawDesc.length > 140
+      ? `${rawDesc.slice(0, 137).trimEnd()}...`
+      : rawDesc
+    : '';
+
   const descParts: string[] = [
     refNo ? `Ref No: ${refNo}.` : '',
     `${propType} property under ${bankName} auction in ${locationText}.`,
     `Reserve Price: ${priceFormatted}${emdFormatted}.`,
-    `Possession: ${possession}.`,
-    `Verified SARFAESI/DRT mandate. View photos, legal notice & auction date on Auctions & More.`,
+    descExcerpt || `Possession: ${possession}. Verified SARFAESI/DRT mandate on Auctions & More.`,
   ].filter(Boolean);
   const description = descParts.join(' ');
 
@@ -96,12 +118,15 @@ export function generatePropertyMetadata(
   } else {
     imageUrl = getPropertyFallbackImage(propType);
   }
+  const imageType = inferImageMimeType(imageUrl);
 
-  // Canonical Property URL (Deterministic per Property ID)
+  // Canonical Property URL matching shared slug/ID cleanly
   const cleanBase = baseUrl.replace(/\/+$/, '');
-  const propertyUrl = `${cleanBase}/property/${propId}`;
+  const canonicalSegment = (preferredSlugOrId && preferredSlugOrId.trim()) || property.slug || propId;
+  const encodedSegment = encodeURIComponent(canonicalSegment).replace(/%2F/gi, '/');
+  const propertyUrl = canonicalSegment ? `${cleanBase}/property/${encodedSegment}` : `${cleanBase}/`;
 
-  // Structured Data (RealEstateListing / SingleFamilyResidence)
+  // Structured Data (RealEstateListing)
   const jsonLd = {
     '@context': 'https://schema.org',
     '@type': 'RealEstateListing',
@@ -133,7 +158,9 @@ export function generatePropertyMetadata(
     title: pageTitle,
     ogTitle,
     description,
+    includeSocialDescription: false,
     imageUrl,
+    imageType,
     url: propertyUrl,
     type: 'article',
     siteName: 'Auctions & More',
@@ -164,7 +191,7 @@ export function generateAuthorityPropertyMetadata(
   const priceFormatted = reservePrice > 0 ? formatINR(reservePrice) : 'Reserve Price on Request';
   const emdFormatted = emdAmount > 0 ? ` (EMD: ${formatINR(emdAmount)})` : '';
 
-  const ogTitle = `${rawTitle} | Listing ID: ${propId}`;
+  const ogTitle = rawTitle;
   const pageTitle = `${rawTitle} (Listing ID: ${propId}, Lot: ${lotNo}) | ${authorityName} | Auctions & More`;
 
   const description = `Listing ID: ${propId} (Ref: ${refNo}, Lot: ${lotNo}). ${authorityName} auction in ${locationText}. Reserve Price: ${priceFormatted}${emdFormatted}. Verified institutional listing. Explore details on Auctions & More.`;
@@ -192,6 +219,7 @@ export function generateAuthorityPropertyMetadata(
     title: pageTitle,
     ogTitle,
     description,
+    includeSocialDescription: false,
     imageUrl,
     url: propertyUrl,
     type: 'article',
@@ -222,7 +250,7 @@ export function generateAuctionAssetMetadata(
   const reservePrice = Number(asset.reserve_price || 0);
   const priceFormatted = reservePrice > 0 ? formatINR(reservePrice) : 'Price on Request';
 
-  const ogTitle = `${rawTitle} | Listing ID: ${assetId}`;
+  const ogTitle = rawTitle;
   const pageTitle = `${rawTitle} (Listing ID: ${assetId}) | ${category} Auction | Auctions & More`;
 
   const description = `Listing ID: ${assetId} (Ref: ${refNo}, Lot: ${lotNo}). ${category} auction in ${locationText}. Reserve: ${priceFormatted}. Verified commercial liquidation. View catalog on Auctions & More.`;
@@ -250,6 +278,7 @@ export function generateAuctionAssetMetadata(
     title: pageTitle,
     ogTitle,
     description,
+    includeSocialDescription: false,
     imageUrl,
     url: assetUrl,
     type: 'product',
@@ -302,6 +331,7 @@ export function generateBlogMetadata(
     title: pageTitle,
     ogTitle,
     description,
+    includeSocialDescription: false,
     imageUrl,
     url: blogUrl,
     type: 'article',
@@ -319,6 +349,7 @@ export function generateDefaultMetadata(baseUrl: string = OFFICIAL_SITE_URL): Ge
     title: "Auctions & More — India's Premier Distressed Asset Platform",
     ogTitle: "Auctions & More — India's Premier Distressed Asset Platform",
     description: "India's premier distressed asset and bank auction platform at auctionsandmore.in. Explore SARFAESI, IBC and DRT properties with live bidding updates, deadline alerts, and tailored investor matching.",
+    includeSocialDescription: true,
     imageUrl: DEFAULT_PROPERTY_FALLBACK_IMAGE,
     url: `${cleanBase}/`,
     type: 'website',
@@ -358,15 +389,31 @@ export function updateClientPageMetadata(meta: GeneratedMetadata): void {
     el.setAttribute('content', content);
   };
 
-  // 2. Standard Meta
-  setMeta('name', 'description', meta.description);
+  const removeMeta = (attributeName: string, attributeValue: string) => {
+    const el = document.querySelector(`meta[${attributeName}="${attributeValue}"]`);
+    if (el) {
+      el.remove();
+    }
+  };
+
+  const includeDesc = meta.includeSocialDescription !== false;
+
+  // 2. Standard & Social Description (omitted on individual listings so platforms show Image + Title + Link only)
+  if (includeDesc && meta.description) {
+    setMeta('name', 'description', meta.description);
+    setMeta('property', 'og:description', meta.description);
+    setMeta('name', 'twitter:description', meta.description);
+  } else {
+    removeMeta('name', 'description');
+    removeMeta('property', 'og:description');
+    removeMeta('name', 'twitter:description');
+  }
 
   // 3. Open Graph Tags
   setMeta('property', 'og:title', meta.ogTitle);
-  setMeta('property', 'og:description', meta.description);
   setMeta('property', 'og:image', meta.imageUrl);
   setMeta('property', 'og:image:secure_url', meta.imageUrl);
-  setMeta('property', 'og:image:type', 'image/jpeg');
+  setMeta('property', 'og:image:type', meta.imageType || inferImageMimeType(meta.imageUrl));
   setMeta('property', 'og:image:width', '1200');
   setMeta('property', 'og:image:height', '630');
   setMeta('property', 'og:image:alt', meta.ogTitle);
@@ -377,7 +424,6 @@ export function updateClientPageMetadata(meta: GeneratedMetadata): void {
   // 4. Twitter Card Tags
   setMeta('name', 'twitter:card', 'summary_large_image');
   setMeta('name', 'twitter:title', meta.ogTitle);
-  setMeta('name', 'twitter:description', meta.description);
   setMeta('name', 'twitter:image', meta.imageUrl);
   setMeta('name', 'twitter:url', meta.url);
 
@@ -413,20 +459,22 @@ export function renderHtmlHeadTags(meta: GeneratedMetadata): string {
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;');
 
+  const includeDesc = meta.includeSocialDescription !== false && Boolean(meta.description);
+
   return `
     <title>${escapeHtml(meta.title)}</title>
-    <meta name="description" content="${escapeHtml(meta.description)}" />
+    ${includeDesc ? `<meta name="description" content="${escapeHtml(meta.description)}" />` : ''}
     <link rel="canonical" href="${escapeHtml(meta.url)}" />
 
     <!-- Open Graph / LinkedIn / Facebook / WhatsApp -->
     <meta property="og:type" content="${escapeHtml(meta.type)}" />
     <meta property="og:site_name" content="${escapeHtml(meta.siteName)}" />
     <meta property="og:title" content="${escapeHtml(meta.ogTitle)}" />
-    <meta property="og:description" content="${escapeHtml(meta.description)}" />
+    ${includeDesc ? `<meta property="og:description" content="${escapeHtml(meta.description)}" />` : ''}
     <meta property="og:url" content="${escapeHtml(meta.url)}" />
     <meta property="og:image" content="${escapeHtml(meta.imageUrl)}" />
     <meta property="og:image:secure_url" content="${escapeHtml(meta.imageUrl)}" />
-    <meta property="og:image:type" content="image/jpeg" />
+    <meta property="og:image:type" content="${escapeHtml(meta.imageType || inferImageMimeType(meta.imageUrl))}" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
     <meta property="og:image:alt" content="${escapeHtml(meta.ogTitle)}" />
@@ -434,7 +482,7 @@ export function renderHtmlHeadTags(meta: GeneratedMetadata): string {
     <!-- Twitter Card -->
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="${escapeHtml(meta.ogTitle)}" />
-    <meta name="twitter:description" content="${escapeHtml(meta.description)}" />
+    ${includeDesc ? `<meta name="twitter:description" content="${escapeHtml(meta.description)}" />` : ''}
     <meta name="twitter:image" content="${escapeHtml(meta.imageUrl)}" />
     <meta name="twitter:url" content="${escapeHtml(meta.url)}" />
 

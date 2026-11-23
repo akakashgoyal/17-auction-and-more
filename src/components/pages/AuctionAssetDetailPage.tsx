@@ -3,8 +3,12 @@ import { AuctionAsset } from '../../types';
 import { getAuctionAssetById } from '../../services/api';
 import { formatINR } from '../../utils/storage';
 import { PageRoute } from '../Navbar';
-import { getShareableUrl } from '../../utils/routes';
+import { getShareableUrl, OFFICIAL_SITE_URL } from '../../utils/routes';
 import { useApi } from '../../context/ApiContext';
+import {
+  generateAuctionAssetMetadata,
+  updateClientPageMetadata,
+} from '../../utils/propertyMetadata';
 import {
   MapPin,
   Calendar,
@@ -72,6 +76,16 @@ export const AuctionAssetDetailPage: React.FC<AuctionAssetDetailPageProps> = ({
       isMounted = false;
     };
   }, [assetId]);
+
+  useEffect(() => {
+    if (asset) {
+      const baseUrl =
+        typeof window !== 'undefined' && window.location && window.location.origin
+          ? window.location.origin
+          : OFFICIAL_SITE_URL;
+      updateClientPageMetadata(generateAuctionAssetMetadata(asset, baseUrl));
+    }
+  }, [asset]);
 
   if (loading) {
     return (
