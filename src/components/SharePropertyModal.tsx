@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Property, AuthorityProperty, AuctionAsset } from '../types';
 import { getShareableUrl, OFFICIAL_SITE_URL, buildEntitySlug } from '../utils/routes';
-import { generatePageMetadata } from '../utils/propertyMetadata';
+import { generatePageMetadata, formatTitleWithAddress } from '../utils/propertyMetadata';
 import { useApi } from '../context/ApiContext';
 import { getPropertyFallbackImage } from '../data/fallbackImages';
 import { PropertyWatermark } from './PropertyWatermark';
@@ -40,6 +40,7 @@ export const SharePropertyModal: React.FC<SharePropertyModalProps> = ({
   // CRITICAL: All React hooks must be declared unconditionally at the top of the component
   const { settings } = useApi();
   const [copiedLink, setCopiedLink] = useState(false);
+  const [linkedInCopied, setLinkedInCopied] = useState(false);
   const [useOfficialDomain, setUseOfficialDomain] = useState(false);
 
   // Early return strictly AFTER all hook calls
@@ -125,17 +126,52 @@ export const SharePropertyModal: React.FC<SharePropertyModalProps> = ({
       'https://images.unsplash.com/photo-1581092160607-ee22621dd758?fit=crop&w=1200&h=630&q=80&fm=jpg';
   }
 
-  // Strictly clean Title only (no extra description/price/ref suffixes)
-  let shareTitle =
+  // Resolve clean Title + Registered Address
+  let rawTitle =
     pageMeta?.ogTitle ||
     `${settings?.company_name || 'Auctions & More'} — India's Premier Distressed Asset Platform`;
+  let registeredAddress = '';
+
   if (property && property.title) {
-    shareTitle = property.title.trim();
+    rawTitle = property.title.trim();
+    const locFallback = Array.from(
+      new Set(
+        [
+          property.location?.locality,
+          property.location?.city || property.cityName,
+          property.location?.state || property.stateName,
+        ]
+          .filter(Boolean)
+          .map((x) => String(x).trim())
+      )
+    ).join(', ');
+    registeredAddress =
+      (property.location?.address && property.location.address.trim()) ||
+      ((property as any).address && String((property as any).address).trim()) ||
+      locFallback;
   } else if (authorityProperty && authorityProperty.title) {
-    shareTitle = authorityProperty.title.trim();
+    rawTitle = authorityProperty.title.trim();
+    registeredAddress =
+      (authorityProperty.address && authorityProperty.address.trim()) ||
+      [
+        authorityProperty.scheme_name,
+        authorityProperty.city_name,
+        authorityProperty.state_name,
+      ]
+        .filter(Boolean)
+        .join(', ');
   } else if (auctionAsset && auctionAsset.title) {
-    shareTitle = auctionAsset.title.trim();
+    rawTitle = auctionAsset.title.trim();
+    registeredAddress =
+      (auctionAsset.complete_address && auctionAsset.complete_address.trim()) ||
+      (auctionAsset.detail_address && auctionAsset.detail_address.trim()) ||
+      (auctionAsset.plant_address && auctionAsset.plant_address.trim()) ||
+      [auctionAsset.city, auctionAsset.state].filter(Boolean).join(', ');
   }
+
+  const shareTitle = registeredAddress
+    ? formatTitleWithAddress(rawTitle, registeredAddress)
+    : rawTitle;
 
   // Robust copy helper with textarea fallback (crucial for iframes)
   const copyTextToClipboard = async (text: string): Promise<boolean> => {
@@ -182,12 +218,22 @@ export const SharePropertyModal: React.FC<SharePropertyModalProps> = ({
     }
   };
 
-  // Uniform sharing across all platforms: Image + Linked Title via backend OG tags (no separate duplicate link text)
-  const whatsappUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(shareUrl)}`;
+  // Uniform sharing across all platforms: Image + Title with Registered Address + Full Link
+  const postTextWithFullLink = `${shareTitle}\n${shareUrl}`;
+  const whatsappUrl = `https://api.whatsapp.com/send?text=${encodeURIComponent(postTextWithFullLink)}`;
   const linkedinUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl)}`;
-  const telegramUrl = `https://t.me/share/url?url=${encodeURIComponent(shareUrl)}`;
-  const twitterUrl = `https://twitter.com/intent/tweet?url=${encodeURIComponent(shareUrl)}`;
-  const emailUrl = `mailto:?subject=${encodeURIComponent(shareTitle)}&body=${encodeURIComponent(shareUrl)}`;
+  const telegramUrl = `https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(shareTitle)}`;
+  const twitterUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareTitle)}&url=${encodeURIComponent(shareUrl)}`;
+  const emailUrl = `mailto:?subject=${encodeURIComponent(shareTitle)}&body=${encodeURIComponent(postTextWithFullLink)}`;
+
+  const handleLinkedInShareClick = () => {
+    void copyTextToClipboard(postTextWithFullLink).then((ok) => {
+      if (ok) {
+        setLinkedInCopied(true);
+        setTimeout(() => setLinkedInCopied(false), 6000);
+      }
+    });
+  };
 
   const handleNativeShare = async () => {
     if (typeof navigator !== 'undefined' && navigator.share) {
@@ -261,11 +307,11 @@ export const SharePropertyModal: React.FC<SharePropertyModalProps> = ({
             </span>
             <span className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-full font-semibold flex items-center gap-1">
               <Check className="w-3 h-3 text-emerald-600" />
-              <span>Image + Title Link</span>
+              <span>Image + Title + Address</span>
             </span>
           </div>
 
-          {/* CLEAN SOCIAL PREVIEW CARD: Image + Only Title (with Link in Title) */}
+          {/* CLEAN SOCIAL PREVIEW CARD: Image + Title + Registered Address + Full Link */}
           <a
             href={shareUrl}
             target="_blank"
@@ -284,12 +330,15 @@ export const SharePropertyModal: React.FC<SharePropertyModalProps> = ({
               <PropertyWatermark variant="corner" position="top-right" size="sm" />
             </div>
 
-            {/* Only Title with Embedded Link */}
+            {/* Title + Registered Address + Full Link */}
             <div className="p-4 bg-gradient-to-b from-white to-[#FAF8F5] space-y-1.5">
-              <h4 className="font-serif text-sm sm:text-base font-bold text-[#142533] line-clamp-2 leading-snug group-hover:text-[#9A6007] group-hover:underline decoration-[#D89B30] underline-offset-4 transition-colors flex items-start justify-between gap-2">
+              <h4 className="font-serif text-sm sm:text-base font-bold text-[#142533] line-clamp-3 leading-snug group-hover:text-[#9A6007] group-hover:underline decoration-[#D89B30] underline-offset-4 transition-colors flex items-start justify-between gap-2">
                 <span>{shareTitle}</span>
                 <ExternalLink className="w-4 h-4 text-[#D89B30] shrink-0 mt-0.5" />
               </h4>
+              <p className="text-[11px] font-mono text-slate-500 truncate">
+                {shareUrl}
+              </p>
             </div>
           </a>
 
@@ -369,8 +418,9 @@ export const SharePropertyModal: React.FC<SharePropertyModalProps> = ({
                 href={linkedinUrl}
                 target="_blank"
                 rel="noopener noreferrer"
+                onClick={handleLinkedInShareClick}
                 className="w-full py-3.5 px-4 rounded-xl bg-[#0A66C2] hover:bg-[#004182] text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all shadow-md cursor-pointer"
-                title="Share property card on LinkedIn"
+                title="Share property card on LinkedIn (copies full link + address for post text)"
               >
                 <svg
                   className="w-4 h-4 fill-current shrink-0"
@@ -382,6 +432,19 @@ export const SharePropertyModal: React.FC<SharePropertyModalProps> = ({
                 <span>Share on LinkedIn</span>
               </a>
             </div>
+
+            {linkedInCopied ? (
+              <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-[11px] text-emerald-800 font-medium flex items-start gap-2">
+                <Check className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
+                <span>
+                  Title, Registered Address &amp; Full Link copied! Paste (<kbd className="font-mono font-bold">Ctrl+V</kbd>) in the LinkedIn post box so the full URL displays above the card.
+                </span>
+              </div>
+            ) : (
+              <p className="text-[11px] text-slate-500 leading-relaxed">
+                Note: LinkedIn&apos;s preview card always shows the short domain (<span className="font-mono">auctionsandmore.in</span>) in its footer while linking to the full property URL. Clicking <strong>Share on LinkedIn</strong> also copies the Title, Address &amp; Full Link so you can paste it into the post text.
+              </p>
+            )}
 
             {/* Other Sharing Channels */}
             <div className="grid grid-cols-4 gap-2">

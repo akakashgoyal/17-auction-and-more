@@ -351,6 +351,24 @@ function am_fetch_property(string $idOrSlug): ?array {
     return null;
 }
 
+function am_format_title_with_address(string $rawTitle, ?string $rawAddress, int $maxLen = 195): string {
+    $cleanTitle = am_sanitize_text($rawTitle);
+    $cleanAddr = am_sanitize_text($rawAddress ?? '');
+    $cleanAddr = (string)preg_replace('/,\s*,+/', ',', $cleanAddr);
+    $cleanAddr = trim($cleanAddr, " \t\n\r\0\x0B,");
+    if ($cleanAddr === '') {
+        return $cleanTitle;
+    }
+    if (stripos($cleanTitle, $cleanAddr) !== false) {
+        return $cleanTitle;
+    }
+    $combined = "{$cleanTitle} — {$cleanAddr}";
+    if (strlen($combined) <= $maxLen) {
+        return $combined;
+    }
+    return rtrim(substr($combined, 0, $maxLen - 3)) . '...';
+}
+
 function am_build_property_meta(array $raw, string $baseUrl, string $preferredSlug): array {
     $id = (string)($raw['id'] ?? $raw['property_id'] ?? $preferredSlug);
     $rawTitle = am_sanitize_text((string)($raw['property_title'] ?? $raw['title'] ?? $raw['name'] ?? 'Verified Bank Auction Property'));
@@ -375,16 +393,28 @@ function am_build_property_meta(array $raw, string $baseUrl, string $preferredSl
     $locParts = array_values(array_unique(array_filter(array_map('trim', [$locality, $city, $state]))));
     $locationText = !empty($locParts) ? implode(', ', $locParts) : 'India';
 
-    $reservePrice = (float)($raw['reserve_price'] ?? $raw['reservePrice'] ?? $raw['price'] ?? 0);
-    $priceFormatted = am_format_inr($reservePrice);
+    // Registered Address from API
+    $registeredAddress = am_sanitize_text((string)($raw['address'] ?? $raw['property_address'] ?? $raw['registered_address'] ?? ''));
+    if ($registeredAddress === '') {
+        $registeredAddress = $locationText;
+    }
 
-    // Strictly ONLY the property title for og:title so LinkedIn & WhatsApp display clean linked title
-    $ogTitle = $rawTitle;
+    // Canonical URL WITHOUT /property/ prefix
+    $slug = trim((string)($raw['slug'] ?? ''));
+    if ($slug === '') {
+        $titleSlug = am_to_slug($rawTitle);
+        $slug = $preferredSlug !== '' ? $preferredSlug : ($titleSlug !== '' ? "{$titleSlug}-{$id}" : $id);
+    }
+    $cleanSlug = ltrim($slug, '/');
+    $propertyUrl = rtrim($baseUrl, '/') . '/' . str_replace('%2F', '/', rawurlencode($cleanSlug));
+
+    // Title + Registered Address for LinkedIn & all social platforms
+    $ogTitle = am_format_title_with_address($rawTitle, $registeredAddress);
     $pageTitle = $refNo !== ''
-        ? "{$rawTitle} (Ref: {$refNo}) | {$bankName} Auction | Auctions & More"
-        : "{$rawTitle} | {$bankName} Auction | Auctions & More";
+        ? "{$ogTitle} (Ref: {$refNo}) | {$bankName} Auction | Auctions & More"
+        : "{$ogTitle} | {$bankName} Auction | Auctions & More";
 
-    $description = "{$propType} property under {$bankName} auction in {$locationText}. Reserve Price: {$priceFormatted}.";
+    $description = $registeredAddress !== '' ? "{$registeredAddress} | {$propertyUrl}" : $propertyUrl;
 
     // Image resolution: Sort images[] by sort_order ascending, fallback to category 1200x630 JPEG
     $fallbackImg = am_get_fallback_image($propType);
@@ -412,25 +442,17 @@ function am_build_property_meta(array $raw, string $baseUrl, string $preferredSl
         }
     }
 
-    // Canonical URL WITHOUT /property/ prefix
-    $slug = trim((string)($raw['slug'] ?? ''));
-    if ($slug === '') {
-        $titleSlug = am_to_slug($rawTitle);
-        $slug = $preferredSlug !== '' ? $preferredSlug : ($titleSlug !== '' ? "{$titleSlug}-{$id}" : $id);
-    }
-    $cleanSlug = ltrim($slug, '/');
-    $propertyUrl = rtrim($baseUrl, '/') . '/' . str_replace('%2F', '/', rawurlencode($cleanSlug));
-
     return [
-        'title'       => $pageTitle,
-        'ogTitle'     => $ogTitle,
-        'description' => $description,
-        'imageUrl'    => $imageUrl,
-        'imageType'   => am_infer_mime_type($imageUrl),
-        'url'         => $propertyUrl,
-        'type'        => 'article',
-        'siteName'    => AM_SITE_NAME,
-        'jsonLd'      => [
+        'title'                    => $pageTitle,
+        'ogTitle'                  => $ogTitle,
+        'description'              => $description,
+        'includeSocialDescription' => true,
+        'imageUrl'                 => $imageUrl,
+        'imageType'                => am_infer_mime_type($imageUrl),
+        'url'                      => $propertyUrl,
+        'type'                     => 'article',
+        'siteName'                 => AM_SITE_NAME,
+        'jsonLd'                   => [
             '@context'   => 'https://schema.org',
             '@type'      => 'RealEstateListing',
             'name'       => $ogTitle,
@@ -454,8 +476,16 @@ function am_build_authority_property_meta(array $raw, string $baseUrl, string $p
         trim((string)($raw['city_name'] ?? '')),
         trim((string)($raw['state_name'] ?? '')),
     ])) ?: 'India';
-    $priceFormatted = am_format_inr($raw['reserve_price'] ?? 0);
-    $description = "{$authorityName} auction in {$locationText}. Reserve Price: {$priceFormatted}.";
+    $registeredAddress = am_sanitize_text((string)($raw['address'] ?? ''));
+    if ($registeredAddress === '') {
+        $registeredAddress = implode(', ', array_filter([
+            trim((string)($raw['scheme_name'] ?? '')),
+            trim((string)($raw['sector'] ?? '')),
+            trim((string)($raw['locality'] ?? '')),
+            trim((string)($raw['city_name'] ?? '')),
+            trim((string)($raw['state_name'] ?? '')),
+        ])) ?: $locationText;
+    }
 
     $imageUrl = AM_DEFAULT_IMAGE;
     if (!empty($raw['primary_image'])) {
@@ -468,19 +498,23 @@ function am_build_authority_property_meta(array $raw, string $baseUrl, string $p
     $slug = $titleSlug !== '' ? "{$titleSlug}-{$id}" : $id;
     $pageUrl = rtrim($baseUrl, '/') . '/authority-properties/' . rawurlencode($slug);
 
+    $ogTitle = am_format_title_with_address($rawTitle, $registeredAddress);
+    $description = $registeredAddress !== '' ? "{$registeredAddress} | {$pageUrl}" : $pageUrl;
+
     return [
-        'title'       => "{$rawTitle} | {$authorityName} | Auctions & More",
-        'ogTitle'     => $rawTitle,
-        'description' => $description,
-        'imageUrl'    => $imageUrl,
-        'imageType'   => am_infer_mime_type($imageUrl),
-        'url'         => $pageUrl,
-        'type'        => 'article',
-        'siteName'    => AM_SITE_NAME,
-        'jsonLd'      => [
+        'title'                    => "{$ogTitle} | {$authorityName} | Auctions & More",
+        'ogTitle'                  => $ogTitle,
+        'description'              => $description,
+        'includeSocialDescription' => true,
+        'imageUrl'                 => $imageUrl,
+        'imageType'                => am_infer_mime_type($imageUrl),
+        'url'                      => $pageUrl,
+        'type'                     => 'article',
+        'siteName'                 => AM_SITE_NAME,
+        'jsonLd'                   => [
             '@context' => 'https://schema.org',
             '@type'    => 'RealEstateListing',
-            'name'     => $rawTitle,
+            'name'     => $ogTitle,
             'url'      => $pageUrl,
             'image'    => $imageUrl,
         ],
@@ -499,8 +533,10 @@ function am_build_auction_asset_meta(array $raw, string $baseUrl, string $param)
         trim((string)($raw['city'] ?? '')),
         trim((string)($raw['state'] ?? '')),
     ])) ?: 'India';
-    $priceFormatted = am_format_inr($raw['reserve_price'] ?? 0);
-    $description = "{$category} auction in {$locationText}. Reserve Price: {$priceFormatted}.";
+    $registeredAddress = am_sanitize_text((string)($raw['complete_address'] ?? $raw['detail_address'] ?? $raw['plant_address'] ?? ''));
+    if ($registeredAddress === '') {
+        $registeredAddress = $locationText;
+    }
 
     $rawImg = $raw['image_path'] ?? $raw['image_url'] ?? $raw['image'] ?? null;
     $imageUrl = am_resolve_media_url($rawImg, AM_INDUSTRIAL_IMAGE);
@@ -509,19 +545,23 @@ function am_build_auction_asset_meta(array $raw, string $baseUrl, string $param)
     $slug = $titleSlug !== '' ? "{$titleSlug}-{$id}" : $id;
     $pageUrl = rtrim($baseUrl, '/') . '/auction-asset/' . rawurlencode($slug);
 
+    $ogTitle = am_format_title_with_address($rawTitle, $registeredAddress);
+    $description = $registeredAddress !== '' ? "{$registeredAddress} | {$pageUrl}" : $pageUrl;
+
     return [
-        'title'       => "{$rawTitle} | {$category} Auction | Auctions & More",
-        'ogTitle'     => $rawTitle,
-        'description' => $description,
-        'imageUrl'    => $imageUrl,
-        'imageType'   => am_infer_mime_type($imageUrl),
-        'url'         => $pageUrl,
-        'type'        => 'product',
-        'siteName'    => AM_SITE_NAME,
-        'jsonLd'      => [
+        'title'                    => "{$ogTitle} | {$category} Auction | Auctions & More",
+        'ogTitle'                  => $ogTitle,
+        'description'              => $description,
+        'includeSocialDescription' => true,
+        'imageUrl'                 => $imageUrl,
+        'imageType'                => am_infer_mime_type($imageUrl),
+        'url'                      => $pageUrl,
+        'type'                     => 'product',
+        'siteName'                 => AM_SITE_NAME,
+        'jsonLd'                   => [
             '@context' => 'https://schema.org',
             '@type'    => 'Product',
-            'name'     => $rawTitle,
+            'name'     => $ogTitle,
             'url'      => $pageUrl,
             'image'    => $imageUrl,
         ],
@@ -790,19 +830,22 @@ function am_render_head_tags(array $meta): string {
     $imageType = am_escape_html((string)$meta['imageType']);
     $type      = am_escape_html((string)$meta['type']);
     $siteName  = am_escape_html((string)$meta['siteName']);
+    $includeDesc = !empty($meta['includeSocialDescription']) && !empty($meta['description']);
+    $descEsc   = $includeDesc ? am_escape_html((string)$meta['description']) : '';
+    $metaDescTag    = $includeDesc ? "    <meta name=\"description\" content=\"{$descEsc}\" />\n" : '';
+    $ogDescTag      = $includeDesc ? "    <meta property=\"og:description\" content=\"{$descEsc}\" />\n" : '';
+    $twitterDescTag = $includeDesc ? "    <meta name=\"twitter:description\" content=\"{$descEsc}\" />\n" : '';
     $jsonLd    = json_encode($meta['jsonLd'], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
 
-    // Note: Intentionally omit og:description & twitter:description so LinkedIn/WhatsApp/Facebook
-    // display the Property Image + Linked Property Title cleanly without redundant link/text clutter.
     return <<<HTML
     <title>{$title}</title>
-    <link rel="canonical" href="{$url}" />
+{$metaDescTag}    <link rel="canonical" href="{$url}" />
 
     <!-- Open Graph / LinkedIn / Facebook / WhatsApp -->
     <meta property="og:type" content="{$type}" />
     <meta property="og:site_name" content="{$siteName}" />
     <meta property="og:title" content="{$ogTitle}" />
-    <meta property="og:url" content="{$url}" />
+{$ogDescTag}    <meta property="og:url" content="{$url}" />
     <meta property="og:image" content="{$imageUrl}" />
     <meta property="og:image:secure_url" content="{$imageUrl}" />
     <meta property="og:image:type" content="{$imageType}" />
@@ -813,7 +856,7 @@ function am_render_head_tags(array $meta): string {
     <!-- Twitter Card -->
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="{$ogTitle}" />
-    <meta name="twitter:image" content="{$imageUrl}" />
+{$twitterDescTag}    <meta name="twitter:image" content="{$imageUrl}" />
     <meta name="twitter:url" content="{$url}" />
 
     <!-- Dynamic Schema.org JSON-LD -->

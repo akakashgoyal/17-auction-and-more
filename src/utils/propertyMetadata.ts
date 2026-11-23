@@ -58,6 +58,18 @@ export function ensureAbsoluteImageUrl(url?: string | null, baseUrl: string = OF
 /**
  * Generate complete Open Graph, Twitter, and Schema.org metadata for a Bank Auction Property
  */
+export function formatTitleWithAddress(rawTitle: string, rawAddress?: string | null, maxLen: number = 195): string {
+  const cleanTitle = sanitizeText(rawTitle);
+  const cleanAddr = sanitizeText(rawAddress).replace(/,\s*,+/g, ',').replace(/^,+\s*|\s*,+$/g, '');
+  if (!cleanAddr) return cleanTitle;
+  if (cleanTitle.toLowerCase().includes(cleanAddr.toLowerCase())) {
+    return cleanTitle;
+  }
+  const combined = `${cleanTitle} — ${cleanAddr}`;
+  if (combined.length <= maxLen) return combined;
+  return `${combined.slice(0, maxLen - 3).trimEnd()}...`;
+}
+
 export function generatePropertyMetadata(
   property: Partial<Property>,
   baseUrl: string = OFFICIAL_SITE_URL,
@@ -72,9 +84,8 @@ export function generatePropertyMetadata(
     (property.bankName && property.bankName.trim()) ||
     property.authority ||
     'Verified Bank Mandate';
-  const possession = property.possessionStatus || 'Physical Possession';
 
-  // Format Location
+  // Format Location & Registered Address
   const locParts = [
     property.location?.locality,
     property.location?.city || property.cityName,
@@ -83,42 +94,16 @@ export function generatePropertyMetadata(
   const uniqueLocParts = Array.from(new Set(locParts.map((p) => p.trim()))).filter(Boolean);
   const locationText = uniqueLocParts.join(', ') || 'India';
 
+  const registeredAddress =
+    sanitizeText(property.location?.address) ||
+    sanitizeText((property as any).address) ||
+    sanitizeText((property as any).property_address) ||
+    sanitizeText((property as any).registered_address) ||
+    locationText;
+
   // Price formatting
   const reservePrice = Number(property.reservePrice || 0);
-  const emdAmount = Number(property.emdAmount || 0);
   const priceFormatted = reservePrice > 0 ? formatINR(reservePrice) : 'Reserve Price on Request';
-  const emdFormatted = emdAmount > 0 ? ` (EMD: ${formatINR(emdAmount)})` : '';
-
-  // Title: Share strictly ONLY the property title across all platforms
-  const ogTitle = rawTitle;
-  const pageTitle = refNo
-    ? `${rawTitle} (Ref: ${refNo}) | ${bankName} Auction | Auctions & More`
-    : `${rawTitle} | ${bankName} Auction | Auctions & More`;
-
-  // Description: Clear, property-specific snippet with Reserve Price, Bank, Location, and Description excerpt
-  const rawDesc = sanitizeText(property.description);
-  const descExcerpt = rawDesc
-    ? rawDesc.length > 140
-      ? `${rawDesc.slice(0, 137).trimEnd()}...`
-      : rawDesc
-    : '';
-
-  const descParts: string[] = [
-    refNo ? `Ref No: ${refNo}.` : '',
-    `${propType} property under ${bankName} auction in ${locationText}.`,
-    `Reserve Price: ${priceFormatted}${emdFormatted}.`,
-    descExcerpt || `Possession: ${possession}. Verified SARFAESI/DRT mandate on Auctions & More.`,
-  ].filter(Boolean);
-  const description = descParts.join(' ');
-
-  // Image resolution: Must be absolute and never empty
-  let imageUrl = '';
-  if (property.images && property.images.length > 0 && property.images[0]) {
-    imageUrl = ensureAbsoluteImageUrl(property.images[0], baseUrl);
-  } else {
-    imageUrl = getPropertyFallbackImage(propType);
-  }
-  const imageType = inferImageMimeType(imageUrl);
 
   // Canonical Property URL matching property slug cleanly
   const cleanBase = baseUrl.replace(/\/+$/, '');
@@ -128,6 +113,26 @@ export function generatePropertyMetadata(
     propId;
   const encodedSegment = encodeURIComponent(canonicalSegment.replace(/^\/+/, '')).replace(/%2F/gi, '/');
   const propertyUrl = canonicalSegment ? `${cleanBase}/${encodedSegment}` : `${cleanBase}/`;
+
+  // Title + Registered Address for LinkedIn & all social share previews
+  const ogTitle = formatTitleWithAddress(rawTitle, registeredAddress);
+  const pageTitle = refNo
+    ? `${ogTitle} (Ref: ${refNo}) | ${bankName} Auction | Auctions & More`
+    : `${ogTitle} | ${bankName} Auction | Auctions & More`;
+
+  // Include Full Link + Registered Address in social description for crawlers that render it
+  const description = registeredAddress
+    ? `${registeredAddress} | ${propertyUrl}`
+    : propertyUrl;
+
+  // Image resolution: Must be absolute and never empty
+  let imageUrl = '';
+  if (property.images && property.images.length > 0 && property.images[0]) {
+    imageUrl = ensureAbsoluteImageUrl(property.images[0], baseUrl);
+  } else {
+    imageUrl = getPropertyFallbackImage(propType);
+  }
+  const imageType = inferImageMimeType(imageUrl);
 
   // Structured Data (RealEstateListing)
   const jsonLd = {
@@ -153,7 +158,7 @@ export function generatePropertyMetadata(
       addressLocality: property.location?.city || property.cityName || undefined,
       addressRegion: property.location?.state || property.stateName || undefined,
       addressCountry: 'IN',
-      streetAddress: property.location?.address || locationText,
+      streetAddress: registeredAddress || locationText,
     },
   };
 
@@ -161,7 +166,7 @@ export function generatePropertyMetadata(
     title: pageTitle,
     ogTitle,
     description,
-    includeSocialDescription: false,
+    includeSocialDescription: true,
     imageUrl,
     imageType,
     url: propertyUrl,
@@ -170,7 +175,7 @@ export function generatePropertyMetadata(
     propertyId: propId,
     referenceNo: refNo || undefined,
     priceFormatted,
-    locationText,
+    locationText: registeredAddress || locationText,
     jsonLd,
   };
 }
@@ -188,21 +193,22 @@ export function generateAuthorityPropertyMetadata(
   const authorityName = prop.authority?.name || 'Development Authority';
   const rawTitle = sanitizeText(prop.title) || `${authorityName} Property`;
   const locationText = [prop.city_name, prop.state_name].filter(Boolean).join(', ') || 'India';
+  const registeredAddress =
+    sanitizeText(prop.address) ||
+    [prop.scheme_name, prop.city_name, prop.state_name].filter(Boolean).join(', ') ||
+    locationText;
 
   const reservePrice = Number(prop.reserve_price || 0);
-  const emdAmount = Number(prop.emd_amount || 0);
   const priceFormatted = reservePrice > 0 ? formatINR(reservePrice) : 'Reserve Price on Request';
-  const emdFormatted = emdAmount > 0 ? ` (EMD: ${formatINR(emdAmount)})` : '';
-
-  const ogTitle = rawTitle;
-  const pageTitle = `${rawTitle} (Listing ID: ${propId}, Lot: ${lotNo}) | ${authorityName} | Auctions & More`;
-
-  const description = `Listing ID: ${propId} (Ref: ${refNo}, Lot: ${lotNo}). ${authorityName} auction in ${locationText}. Reserve Price: ${priceFormatted}${emdFormatted}. Verified institutional listing. Explore details on Auctions & More.`;
 
   let rawImg = prop.primary_image || (prop.images && prop.images[0] ? prop.images[0].image_url : null);
   const imageUrl = ensureAbsoluteImageUrl(rawImg, baseUrl);
   const propSlug = buildEntitySlug(prop.title, prop.id);
   const propertyUrl = `${baseUrl.replace(/\/+$/, '')}/authority-properties/${propSlug || propId}`;
+
+  const ogTitle = formatTitleWithAddress(rawTitle, registeredAddress);
+  const pageTitle = `${ogTitle} (Listing ID: ${propId}, Lot: ${lotNo}) | ${authorityName} | Auctions & More`;
+  const description = registeredAddress ? `${registeredAddress} | ${propertyUrl}` : propertyUrl;
 
   const jsonLd = {
     '@context': 'https://schema.org',
@@ -223,7 +229,7 @@ export function generateAuthorityPropertyMetadata(
     title: pageTitle,
     ogTitle,
     description,
-    includeSocialDescription: false,
+    includeSocialDescription: true,
     imageUrl,
     url: propertyUrl,
     type: 'article',
@@ -232,7 +238,7 @@ export function generateAuthorityPropertyMetadata(
     referenceNo: refNo,
     lotNo,
     priceFormatted,
-    locationText,
+    locationText: registeredAddress || locationText,
     jsonLd,
   };
 }
@@ -250,18 +256,22 @@ export function generateAuctionAssetMetadata(
   const category = asset.category || 'Industrial Asset';
   const rawTitle = sanitizeText(asset.title) || `${category} Auction`;
   const locationText = [asset.city, asset.state].filter(Boolean).join(', ') || 'India';
+  const registeredAddress =
+    sanitizeText(asset.complete_address) ||
+    sanitizeText(asset.detail_address) ||
+    sanitizeText(asset.plant_address) ||
+    locationText;
 
   const reservePrice = Number(asset.reserve_price || 0);
   const priceFormatted = reservePrice > 0 ? formatINR(reservePrice) : 'Price on Request';
 
-  const ogTitle = rawTitle;
-  const pageTitle = `${rawTitle} (Listing ID: ${assetId}) | ${category} Auction | Auctions & More`;
-
-  const description = `Listing ID: ${assetId} (Ref: ${refNo}, Lot: ${lotNo}). ${category} auction in ${locationText}. Reserve: ${priceFormatted}. Verified commercial liquidation. View catalog on Auctions & More.`;
-
   const imageUrl = ensureAbsoluteImageUrl(asset.asset_image, baseUrl);
   const assetSlug = buildEntitySlug(asset.title, asset.id);
   const assetUrl = `${baseUrl.replace(/\/+$/, '')}/auction-asset/${assetSlug || assetId}`;
+
+  const ogTitle = formatTitleWithAddress(rawTitle, registeredAddress);
+  const pageTitle = `${ogTitle} (Listing ID: ${assetId}) | ${category} Auction | Auctions & More`;
+  const description = registeredAddress ? `${registeredAddress} | ${assetUrl}` : assetUrl;
 
   const jsonLd = {
     '@context': 'https://schema.org',
@@ -283,7 +293,7 @@ export function generateAuctionAssetMetadata(
     title: pageTitle,
     ogTitle,
     description,
-    includeSocialDescription: false,
+    includeSocialDescription: true,
     imageUrl,
     url: assetUrl,
     type: 'product',
@@ -292,7 +302,7 @@ export function generateAuctionAssetMetadata(
     referenceNo: refNo,
     lotNo,
     priceFormatted,
-    locationText,
+    locationText: registeredAddress || locationText,
     jsonLd,
   };
 }
