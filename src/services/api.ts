@@ -1,6 +1,6 @@
 /**
  * AUCTIONS & MORE — LARAVEL REST API SERVICE
- * Base URL: https://auction-admin.springstrdg.com/api/v1
+ * Base URL: https://admin.auctionsandmore.in/api/v1
  * Single source of truth for properties, content, settings, and enquiries.
  */
 
@@ -37,7 +37,7 @@ import { COMPANY_INFO } from '../data/companyInfo';
 import { getYouTubeThumbnailUrl } from '../utils/videoUtils';
 import { toTitleSlug, extractEntityId } from '../utils/routes';
 
-const DEFAULT_PROD_BACKEND_URL = 'https://auction-admin.springstrdg.com';
+const DEFAULT_PROD_BACKEND_URL = 'https://admin.auctionsandmore.in';
 
 function sanitizeConfiguredUrl(rawUrl: unknown): string | null {
   if (typeof rawUrl !== 'string') return null;
@@ -933,14 +933,14 @@ export function normalizeProperty(raw: any, indexFallback: number = 1): Property
 }
 
 /**
- * Strips internal backend admin URLs (e.g., https://auction-admin.springstrdg.com/admin/...)
+ * Strips internal backend admin URLs (e.g., https://admin.auctionsandmore.in/admin/...)
  * so accidental admin panel copy-pastes never surface in public UI fields.
  */
 export function stripBackendAdminUrls(input?: string | null): string | null {
   if (!input || typeof input !== 'string') return null;
   const cleaned = input
-    .replace(/https?:\/\/[^\s"'<>]*?(?:auction-admin\.springstrdg\.com|springstrdg\.com\/admin|\/admin(?:\/|$))[^\s"'<>]*/gi, '')
-    .replace(/(?:auction-admin\.springstrdg\.com|springstrdg\.com\/admin)[^\s"'<>]*/gi, '')
+    .replace(/https?:\/\/[^\s"'<>]*?(?:admin\.auctionsandmore\.in|auction-admin\.springstrdg\.com|springstrdg\.com\/admin|\/admin(?:\/|$))[^\s"'<>]*/gi, '')
+    .replace(/(?:admin\.auctionsandmore\.in|auction-admin\.springstrdg\.com|springstrdg\.com\/admin)[^\s"'<>]*/gi, '')
     .replace(/\s{2,}/g, ' ')
     .trim();
   return cleaned || null;
@@ -952,6 +952,7 @@ export function sanitizePublicWebsiteUrl(rawUrl?: string | null): string | null 
   if (!trimmed) return null;
   const lower = trimmed.toLowerCase();
   if (
+    lower.includes('admin.auctionsandmore.in') ||
     lower.includes('auction-admin') ||
     lower.includes('springstrdg.com') ||
     lower.includes('ai.studio') ||

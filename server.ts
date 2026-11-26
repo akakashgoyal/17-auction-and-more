@@ -31,7 +31,7 @@ const distPath = path.resolve(__dirname, 'dist');
 const indexHtmlPath = path.resolve(__dirname, 'index.html');
 const distIndexHtmlPath = path.resolve(distPath, 'index.html');
 
-const BACKEND_API_BASE = 'https://auction-admin.springstrdg.com/api/v1';
+const BACKEND_API_BASE = 'https://admin.auctionsandmore.in/api/v1';
 
 const app = express();
 app.use(express.json());
@@ -98,7 +98,7 @@ function getRequestBaseUrl(req: express.Request): string {
   const rawHost = (req.headers['x-forwarded-host'] as string) || req.get('host') || '';
   const forwardedHost = rawHost.split(',')[0].trim();
 
-  if (forwardedHost.includes('auctionsandmore.in')) {
+  if (forwardedHost.includes('auctionsandmore.in') && !forwardedHost.startsWith('admin.')) {
     return 'https://auctionsandmore.in';
   }
 

@@ -1,6 +1,6 @@
 /**
  * Blog Data Model & Types for Laravel Backend API
- * Connected to https://auction-admin.springstrdg.com/api/blogs
+ * Connected to https://admin.auctionsandmore.in/api/v1/blogs
  */
 
 export interface BlogPost {

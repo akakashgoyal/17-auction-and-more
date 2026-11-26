@@ -11,7 +11,7 @@ declare(strict_types=1);
 
 @ini_set('display_errors', '0');
 
-define('AM_BACKEND_URL', 'https://auction-admin.springstrdg.com');
+define('AM_BACKEND_URL', 'https://admin.auctionsandmore.in');
 define('AM_API_BASE', AM_BACKEND_URL . '/api/v1');
 define('AM_SITE_NAME', 'Auctions & More');
 define('AM_OFFICIAL_URL', 'https://auctionsandmore.in');
@@ -103,7 +103,7 @@ function am_resolve_media_url($rawImg, string $fallback = AM_DEFAULT_IMAGE): str
     }
 
     if (preg_match('#^https?://#i', $candidate)) {
-        if (stripos($candidate, 'http://auction-admin.springstrdg.com') === 0) {
+        if (stripos($candidate, 'http://admin.auctionsandmore.in') === 0) {
             return 'https://' . substr($candidate, 7);
         }
         return $candidate;
@@ -906,7 +906,7 @@ if ($rawHtml === false) {
 try {
     $rawHost = (string)($_SERVER['HTTP_X_FORWARDED_HOST'] ?? $_SERVER['HTTP_HOST'] ?? 'auctionsandmore.in');
     $host = trim(explode(',', $rawHost)[0]);
-    if (stripos($host, 'auctionsandmore.in') !== false || stripos($host, 'auctionandmore.in') !== false) {
+    if ((stripos($host, 'auctionsandmore.in') !== false || stripos($host, 'auctionandmore.in') !== false) && stripos($host, 'admin.') !== 0) {
         $baseUrl = AM_OFFICIAL_URL;
     } else {
         $proto = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
